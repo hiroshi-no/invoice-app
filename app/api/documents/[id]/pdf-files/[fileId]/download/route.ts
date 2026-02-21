@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 
 type RouteContext =
   | { params: { id: string; fileId: string } }
@@ -14,6 +15,7 @@ const UUID_RE =
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(url, key, {
@@ -28,6 +30,12 @@ function createSupabase(req: NextRequest) {
   })
 
   return { supabase, cookiesToSet }
+}
+
+function createSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(url, serviceKey, { auth: { persistSession: false } })
 }
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
@@ -48,28 +56,29 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     return res
   }
 
+  // auth（DB参照はユーザーセッションで）
   const { data: userData, error: userErr } = await supabase.auth.getUser()
   if (userErr || !userData.user) return json({ error: 'Not authenticated' }, 401)
 
-  // ✅ path / storage_path どちらでも拾えるようにする（過去互換）
+  // document_files から path を取得（RLSで自分の行だけ見える）
   const { data: row, error: rowErr } = await supabase
     .from('document_files')
-    .select('id, document_id, path, storage_path')
+    .select('id, document_id, path')
     .eq('id', fileId)
     .eq('document_id', documentId)
     .maybeSingle()
 
-  const filePath = (row as any)?.path ?? (row as any)?.storage_path ?? null
+  if (rowErr || !row?.path) return json({ error: 'File not found' }, 404)
 
-  // 情報漏洩防止で 404 寄せ
-  if (rowErr || !filePath) return json({ error: 'File not found' }, 404)
-
-  const { data: signed, error: signErr } = await supabase.storage
+  // 署名URLは admin で発行
+  const admin = createSupabaseAdmin()
+  const { data: signed, error: signErr } = await admin.storage
     .from('documents')
-    .createSignedUrl(filePath, 60)
+    .createSignedUrl(row.path, 60)
 
   if (signErr || !signed?.signedUrl) return json({ error: 'File not found' }, 404)
 
+  // redirect（cookie/no-storeも付与）
   const res = NextResponse.redirect(signed.signedUrl, 302)
   for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
   res.headers.set('Cache-Control', 'no-store')

@@ -112,11 +112,6 @@ const fileNameFromPath = (path: string) => {
   const name = p.split('/').pop() ?? p
   return name || p
 }
-  // ✅ サーバ側が追いついたら optimistic を外す
-  useEffect(() => {
-    if (optimisticStatus && status === optimisticStatus) setOptimisticStatus(null)
-  }, [status, optimisticStatus])
-
   // --- ここから下は既存の HASH_KEY / DIRTY_KEY / loadFiles 等を続ける ---
   const HASH_KEY = useMemo(() => `invoice:doc:${documentId}:items_hash`, [documentId])
 
@@ -124,6 +119,45 @@ const fileNameFromPath = (path: string) => {
   const DIRTY_KEY = useMemo(() => `invoice:doc:${documentId}:items_dirty`, [documentId])
   const [dirtyItems, setDirtyItems] = useState(false)
 
+  // ✅ localStorage を読んで dirtyItems に反映（未初期化なら 0 を入れる）
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const read = () => {
+      try {
+        const v = window.localStorage.getItem(DIRTY_KEY)
+        if (v == null) {
+          window.localStorage.setItem(DIRTY_KEY, '0') // ✅ dirty=null 対策
+          setDirtyItems(false)
+          return
+        }
+        setDirtyItems(v === '1')
+      } catch {
+        setDirtyItems(false)
+      }
+    }
+
+    read()
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === DIRTY_KEY) read()
+    }
+    window.addEventListener('storage', onStorage)
+
+    // ✅ 同一タブ内での更新検知用（storageイベントは別タブ向けなので）
+    const t = window.setInterval(read, 800)
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.clearInterval(t)
+    }
+  }, [DIRTY_KEY])
+
+
+  // ✅ サーバ側が追いついたら optimistic を外す
+  useEffect(() => {
+    if (optimisticStatus && status === optimisticStatus) setOptimisticStatus(null)
+  }, [status, optimisticStatus])
 
   const getItemsHashOrWarn = () => {
     if (typeof window === 'undefined') return null
@@ -229,14 +263,15 @@ const loadFiles = async (opts?: { silent?: boolean }) => {
   }
 }
 
+// ✅ 未保存ガード（dirtyItems state を参照）
 const ensureSavedOrWarn = () => {
   if (!dirtyItems) return true
   setErr('明細が未保存です。編集画面で「保存」してから実行してください。')
   return false
 }
 
+// ✅ 未保存なら発行系を無効化
 const disableFinalize = !!busy || dirtyItems
-
 
   useEffect(() => {
     loadFiles()
@@ -247,9 +282,13 @@ const disableFinalize = !!busy || dirtyItems
   setErr(null)
   setOkMsg(null)
 
-  if (!ensureSavedOrWarn()) return
-  const itemsHash = getItemsHashOrWarn()
-  if (!itemsHash) return
+if (!ensureSavedOrWarn()) return
+
+const itemsHash = await getItemsHashOrFetch()
+if (!itemsHash) {
+  setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+  return
+}
 
   setBusy('issue')
 
@@ -258,9 +297,9 @@ const disableFinalize = !!busy || dirtyItems
       method: 'POST',
       credentials: 'include',
       headers: {
-        'x-confirm-saved-items': '1',
-        'x-items-hash': itemsHash,
-      },
+         'x-confirm-saved-items': '1',
+          'x-items-hash': itemsHash,
+        },
     })
 
     const json = await res.json().catch(() => ({}))
@@ -304,8 +343,12 @@ const savePdf = async () => {
 
   if (!ensureSavedOrWarn()) return
 
-  const itemsHash = getItemsHashOrWarn()
-  if (!itemsHash) return
+const itemsHash = await getItemsHashOrFetch()
+if (!itemsHash) {
+  setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+  return
+}
+
 
   // ✅ クリック直後に空タブを開く（ポップアップブロック回避）
   const popup = window.open('about:blank', '_blank')
@@ -417,29 +460,35 @@ const duplicateToEdit = async () => {
 }
 
 const getItemsHashOrFetch = async () => {
+  if (typeof window === 'undefined') return null
+
   const hashKey = `invoice:doc:${documentId}:items_hash`
   const dirtyKey = `invoice:doc:${documentId}:items_dirty`
 
-  const v = localStorage.getItem(hashKey)
-  if (v) return v
+  try {
+    // ✅ 毎回サーバから最新hashを取る（localStorageの古い値を信用しない）
+    const res = await fetch('/api/documents/' + documentId + '/items-hash', {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) return null
 
-  const res = await fetch('/api/documents/' + documentId + '/items-hash', {
-    credentials: 'include',
-    cache: 'no-store',
-  })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) return null
+    const h = (json?.itemsHash as string | undefined)?.toLowerCase()
+    if (!h) return null
 
-  const h = json?.itemsHash as string | undefined
-  if (!h) return null
+    // ✅ 最新を保存（以後の画面でも安定）
+    window.localStorage.setItem(hashKey, h)
 
-  localStorage.setItem(hashKey, h)
+    // dirty が '1' でなければ 0 に揃える（'1' は保持）
+    if (window.localStorage.getItem(dirtyKey) !== '1') window.localStorage.setItem(dirtyKey, '0')
 
-  // ✅ dirty が未初期化 or '0' なら、明示的に 0 に揃える（'1'は保持）
-  if (localStorage.getItem(dirtyKey) !== '1') localStorage.setItem(dirtyKey, '0')
-
-  return h
+    return h
+  } catch {
+    return null
+  }
 }
+
 
 
 const finalize = async () => {
@@ -486,14 +535,21 @@ if (!itemsHash) {
       cache: 'no-store',
     })
 
-    const json = await res.json().catch(() => ({}))
+const text = await res.clone().text().catch(() => '')
+let json: any = {}
+try {
+  json = text ? JSON.parse(text) : {}
+} catch {
+  json = { raw: text }
+}
 
-    if (!res.ok) {
-      logApiError('finalize', res, json)
-      setErr(describeApiError('発行＋PDF保存', res, json))
-      if (popup) popup.close()
-      return
-    }
+if (!res.ok) {
+  console.error('[finalize] raw body:', text.slice(0, 400))
+  logApiError('finalize', res, json)
+  setErr(describeApiError('発行＋PDF保存', res, json))
+  if (popup) popup.close()
+  return
+}
 
       // ✅ finalize は { ok, issue, pdf } を返す想定
       // 1) 発行番号を拾う（issue の中）

@@ -99,28 +99,24 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   // items（このあと rows と hash に使い回す）
-  const { data: items, error: itemsErr } = await supabase
-    .from('document_items')
-    .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
-    .eq('document_id', documentId)
-    .order('position', { ascending: true })
+const { data: items, error: itemsErr } = await supabase
+  .from('document_items')
+  .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
+  .eq('document_id', documentId)
+  .order('position', { ascending: true })
+  .order('id', { ascending: true })
 
   if (itemsErr) return respond({ error: itemsErr.message }, { status: 500 })
 
-  const dbHash = computeItemsHashFromDbRows((items ?? []) as DbItemRowForHash[]).toLowerCase()
-  if (clientHash !== dbHash) {
-    return respond(
-      {
-        error: 'items_not_saved',
-        message:
-          '明細が未保存（またはDBと不一致）のためPDF保存できません。編集画面で保存してから再実行してください。',
-        expected: dbHash, // 本番は消してOK
-        got: clientHash,  // 本番は消してOK
-      },
-      { status: 409 }
-    )
-  }
+const rowsForHash = (items ?? []).map((it: any) => ({
+  position: Number(it.position ?? 0),
+  description: it.description ?? null,
+  quantity: Number(it.quantity ?? 0),
+  unit_price_amount: Number(it.unit_price_amount ?? 0),
+  line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
+}))
 
+const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toLowerCase()
   // customer（無くてもPDF作る）
   let customerName = ''
   if (doc.customer_id) {

@@ -2,6 +2,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
 
 type RouteContext =
   | { params: { id: string } }
@@ -10,111 +11,111 @@ type RouteContext =
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-// Set-Cookie の "name=value" を cookie ヘッダ文字列に反映（MVP版）
-function mergeSetCookieIntoCookieHeader(cookieHeader: string, setCookies: string[]) {
-  const map = new Map<string, string>()
+function createSupabase(req: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  cookieHeader
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .forEach((pair) => {
-      const i = pair.indexOf('=')
-      if (i > 0) map.set(pair.slice(0, i), pair.slice(i + 1))
-    })
+  const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
-  for (const sc of setCookies) {
-    const first = sc.split(';')[0] // name=value
-    const i = first.indexOf('=')
-    if (i > 0) map.set(first.slice(0, i), first.slice(i + 1))
-  }
+  const supabase = createServerClient(url, key, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll().map((c) => ({ name: c.name, value: c.value }))
+      },
+      setAll(list) {
+        cookiesToSet.push(...list)
+      },
+    },
+  })
 
-  return Array.from(map.entries())
-    .map(([k, v]) => `${k}=${v}`)
-    .join('; ')
+  return { supabase, cookiesToSet }
 }
 
-// Node runtime の fetch は getSetCookie があることが多いが、無い場合もあるので吸収
-function getSetCookies(res: Response): string[] {
-  // @ts-ignore
-  if (typeof (res.headers as any).getSetCookie === 'function') {
-    // @ts-ignore
-    return (res.headers as any).getSetCookie() as string[]
+async function readJsonOrRaw(res: Response) {
+  const text = await res.text().catch(() => '')
+  try {
+    return { json: text ? JSON.parse(text) : {}, raw: text }
+  } catch {
+    return { json: { raw: text }, raw: text }
   }
-
-  // fallback: 1本だけ取れる環境もある（複数は取り切れない可能性あり）
-  const sc = res.headers.get('set-cookie')
-  return sc ? [sc] : []
 }
 
 export async function POST(req: NextRequest, ctx: RouteContext) {
-  const params = await Promise.resolve((ctx as any).params)
-  const documentId = String((params as any).id ?? '')
+  const params = 'then' in ctx.params ? await ctx.params : ctx.params
+  const documentId = String(params.id ?? '')
 
-  if (!UUID_RE.test(documentId)) {
-    return NextResponse.json({ error: 'Invalid document id' }, { status: 400 })
+  const { supabase, cookiesToSet } = createSupabase(req)
+
+  const respond = (body: any, status = 200) => {
+    const res = NextResponse.json(body, { status })
+    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    res.headers.set('Cache-Control', 'no-store')
+    return res
   }
 
-  // ✅ items hash 必須（pdf/save の 409 ガードのため）
+  if (!UUID_RE.test(documentId)) return respond({ error: 'Invalid document id' }, 400)
+
+  // auth
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) return respond({ error: userErr?.message ?? 'Not authenticated' }, 401)
+
+  // x-items-hash 必須
   const itemsHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
-  if (!itemsHash) {
-    return NextResponse.json({ error: 'Precondition required: x-items-hash' }, { status: 428 })
+  if (!itemsHash) return respond({ error: 'Precondition required: x-items-hash' }, 428)
+
+  // 状態確認（issued なら issue をスキップして pdf/save だけ実行できるように）
+  const { data: doc, error: docErr } = await supabase
+    .from('documents')
+    .select('id, status')
+    .eq('id', documentId)
+    .maybeSingle()
+
+  if (docErr) return respond({ error: docErr.message }, 500)
+  if (!doc) return respond({ error: 'Document not found' }, 404)
+  if (doc.status !== 'draft' && doc.status !== 'issued') return respond({ error: 'invalid document status' }, 409)
+
+  const origin = req.nextUrl.origin
+  const cookie = req.headers.get('cookie') ?? ''
+
+  const commonHeaders: Record<string, string> = {
+    cookie,
+    'x-confirm-saved-items': '1',
+    'x-items-hash': itemsHash,
   }
 
-  const origin = new URL(req.url).origin
-
-  // 元の cookie（この finalize を叩いたユーザーのセッションを下流へ渡す）
-  let cookieHeader = req.headers.get('cookie') ?? ''
-
-  // クライアントへ返す set-cookie を溜める
-  const setCookiesToClient: string[] = []
-
-  const callJson = async (path: string, step: string) => {
-    const url = new URL(path, origin).toString()
-
-    const res = await fetch(url, {
+  // 1) issue（draft の時だけ）
+  let issueResult: any = { skipped: true }
+  if (doc.status === 'draft') {
+    const r1 = await fetch(`${origin}/api/documents/${documentId}/issue`, {
       method: 'POST',
-      headers: {
-        cookie: cookieHeader,
-        'x-items-hash': itemsHash,
-        'x-confirm-saved-items': '1',
-      },
+      headers: commonHeaders,
       cache: 'no-store',
     })
 
-    const setCookies = getSetCookies(res)
-    if (setCookies.length) {
-      setCookiesToClient.push(...setCookies)
-      cookieHeader = mergeSetCookieIntoCookieHeader(cookieHeader, setCookies)
+    const { json, raw } = await readJsonOrRaw(r1)
+    if (!r1.ok) {
+      return respond(
+        { error: 'issue_failed', status: r1.status, detail: json, raw: raw.slice(0, 500) },
+        r1.status
+      )
     }
-
-    const json = await res.json().catch(() => ({}))
-    return { res, json, step }
+    issueResult = json
   }
 
-  // 1) Issue
-  const step1 = await callJson(`/api/documents/${documentId}/issue`, 'issue')
-  if (!step1.res.ok) {
-    const out = NextResponse.json(
-      { error: step1.json.error ?? 'ISSUE failed', step: step1.step, detail: step1.json },
-      { status: step1.res.status }
+  // 2) pdf/save（必ず）
+  const r2 = await fetch(`${origin}/api/documents/${documentId}/pdf/save`, {
+    method: 'POST',
+    headers: commonHeaders,
+    cache: 'no-store',
+  })
+
+  const { json: pdfJson, raw: pdfRaw } = await readJsonOrRaw(r2)
+  if (!r2.ok) {
+    return respond(
+      { error: 'pdf_save_failed', status: r2.status, detail: pdfJson, raw: pdfRaw.slice(0, 500) },
+      r2.status
     )
-    for (const sc of setCookiesToClient) out.headers.append('set-cookie', sc)
-    return out
   }
 
-  // 2) PDF save
-  const step2 = await callJson(`/api/documents/${documentId}/pdf/save`, 'pdf/save')
-  if (!step2.res.ok) {
-    const out = NextResponse.json(
-      { error: step2.json.error ?? 'PDF save failed', step: step2.step, detail: step2.json },
-      { status: step2.res.status }
-    )
-    for (const sc of setCookiesToClient) out.headers.append('set-cookie', sc)
-    return out
-  }
-
-  const out = NextResponse.json({ ok: true, issue: step1.json, pdf: step2.json }, { status: 200 })
-  for (const sc of setCookiesToClient) out.headers.append('set-cookie', sc)
-  return out
+  return respond({ ok: true, issue: issueResult, pdf: pdfJson }, 200)
 }

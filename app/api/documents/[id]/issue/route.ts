@@ -87,11 +87,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       return respond({ error: 'Precondition required: x-items-hash' }, { status: 428 })
     }
 
-    const { data: dbItems, error: itemsErr } = await supabase
-      .from('document_items')
-      .select('id,position,description,quantity,unit_price_amount')
-      .eq('document_id', documentId)
-      .order('position', { ascending: true })
+const { data: dbItems, error: itemsErr } = await supabase
+  .from('document_items')
+  .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
+  .eq('document_id', documentId)
+  .order('position', { ascending: true })
 
     if (itemsErr) {
       return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
