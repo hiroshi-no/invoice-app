@@ -93,7 +93,12 @@ const normalizeForHash = (list: Item[]) =>
       // ✅ server と同じキー順（id, position, desc, qty, unit）
       return { id, position, desc, qty, unit }
     })
-    .sort((a, b) => (a.position - b.position) || a.id.localeCompare(b.id))
+    .sort(
+  (
+    a: { id: string; position: number },
+    b: { id: string; position: number }
+  ) => (a.position - b.position) || a.id.localeCompare(b.id)
+)
 
 async function sha256Hex(text: string) {
   const enc = new TextEncoder()
@@ -247,16 +252,20 @@ const save = async (): Promise<boolean> => {
       return false
     }
 
-const newItems: Item[] = (json.items ?? [])
-  .map((it: any) => ({
+const newItems = (json.items ?? [])
+  .map((it: any): Item => ({
     id: it.id,
     position: Number(it.position ?? 0),
     description: it.description ?? '',
     quantity: Number(it.quantity ?? 0),
     unit_price_amount: Number(it.unit_price_amount ?? 0),
   }))
-  // ✅ 念のため position でソートして「並び」を確定
-  .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  .sort(
+  (
+    a: { position?: number | null },
+    b: { position?: number | null }
+  ) => (a.position ?? 0) - (b.position ?? 0)
+)
 
 setItems(newItems)
 setDeleteIds([])

@@ -46,18 +46,22 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  const respondPdf = (pdf: Uint8Array) => {
-    const res = new NextResponse(pdf, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="invoice-${documentId}.pdf"`,
-        'Cache-Control': 'no-store',
-      },
-    })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    return res
-  }
+const respondPdf = (pdf: Uint8Array) => {
+  const ab = new ArrayBuffer(pdf.byteLength)
+  const view = new Uint8Array(ab)
+  view.set(pdf)
+
+  const res = new NextResponse(view, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="invoice-${documentId}.pdf"`,
+      'Cache-Control': 'no-store',
+    },
+  })
+  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+  return res
+}
 
   const respondErr = (body: any, status = 500) => {
     const res = NextResponse.json(body, { status })

@@ -2,11 +2,12 @@
 import { createHash } from 'node:crypto'
 
 export type DbItemRowForHash = {
-  id: string
-  position: number | null
+  id?: string // ✅ optional にする
+  position: number
   description: string | null
-  quantity: any
-  unit_price_amount: any
+  quantity: number
+  unit_price_amount: number
+  line_subtotal_amount: number | null
 }
 
 function normalizeIntStr(v: any): string {
@@ -37,14 +38,26 @@ function normalizeQtyStr(v: any): string {
  */
 export function computeItemsHashFromDbRows(rows: DbItemRowForHash[]): string {
   const norm = rows
-    .map((r, idx) => ({
-      id: r.id,
-      position: r.position ?? idx + 1,
-      desc: (r.description ?? '').trim(),
-      qty: normalizeQtyStr(r.quantity),
-      unit: normalizeIntStr(r.unit_price_amount),
-    }))
-    .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
+  .map((r) => ({
+    // ✅ sort専用（undefined回避）
+    _sortId: String(r.id ?? ''),
 
-  return createHash('sha256').update(JSON.stringify(norm)).digest('hex')
+    // ✅ position は数値化（sort用）
+    position: Number(r.position ?? 0),
+
+    // ✅ 文字列は null/undefined を吸収（ハッシュ用）
+    description: String(r.description ?? ''),
+
+    // ✅ 既存関数を使用
+    quantity: normalizeIntStr(r.quantity),
+    unit: normalizeIntStr(r.unit_price_amount),
+
+    // line_subtotal_amount を使っているなら残す（使ってなければ削除OK）
+    line: normalizeIntStr((r as any).line_subtotal_amount),
+  }))
+  .sort((a, b) => (a.position - b.position) || a._sortId.localeCompare(b._sortId))
+  // ✅ ハッシュ材料に id を混ぜない
+  .map(({ _sortId, ...rest }) => rest)
+
+return createHash('sha256').update(JSON.stringify(norm)).digest('hex')
 }

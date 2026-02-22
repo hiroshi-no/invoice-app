@@ -104,12 +104,12 @@ type HashRow = {
   line_subtotal_amount: number | null
 }
 
-const rowsForHash = (dbItems ?? []).map((it: any) => ({
-  position: it.position,
-  description: it.description,
-  quantity: it.quantity,
-  unit_price_amount: it.unit_price_amount,
-  line_subtotal_amount: it.line_subtotal_amount,
+const rowsForHash: HashRow[] = (dbItems ?? []).map((it: any) => ({
+  position: Number(it.position ?? 0),
+  description: it.description ?? null,
+  quantity: Number(it.quantity ?? 0),
+  unit_price_amount: Number(it.unit_price_amount ?? 0),
+  line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
 }))
 
 const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).toLowerCase()
