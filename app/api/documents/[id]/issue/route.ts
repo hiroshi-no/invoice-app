@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { computeItemsHashFromDbRows, type DbItemRowForHash } from '@/lib/itemsHash'
+import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
 
 type RouteContext =
   | { params: { id: string } }
@@ -89,15 +89,31 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
 const { data: dbItems, error: itemsErr } = await supabase
   .from('document_items')
-  .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
+  .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
   .eq('document_id', documentId)
   .order('position', { ascending: true })
+  .order('id', { ascending: true })
 
-    if (itemsErr) {
-      return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
-    }
+if (itemsErr) return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
 
-    const dbHash = computeItemsHashFromDbRows((dbItems ?? []) as DbItemRowForHash[]).toLowerCase()
+type HashRow = {
+  position: number
+  description: string | null
+  quantity: number
+  unit_price_amount: number
+  line_subtotal_amount: number | null
+}
+
+const rowsForHash = (dbItems ?? []).map((it: any) => ({
+  position: it.position,
+  description: it.description,
+  quantity: it.quantity,
+  unit_price_amount: it.unit_price_amount,
+  line_subtotal_amount: it.line_subtotal_amount,
+}))
+
+const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).toLowerCase()
+
     if (clientHash !== dbHash) {
       return respond(
         {
