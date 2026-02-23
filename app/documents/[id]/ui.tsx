@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+const reportClientError = (label: string, detail?: any) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(label, detail)
+  } else {
+    console.error(label)
+  }
+}
+
 type PdfFile = {
   id: string
   created_at: string
@@ -197,7 +205,7 @@ const describeApiError = (action: string, res: Response, json: any) => {
 // ✅ 失敗時ログ（デバッグ用）
 const logApiError = (action: string, res: Response, json: any) => {
   try {
-    console.error(`[${action}] HTTP ${res.status}`, json)
+    reportClientError(`[${action}] HTTP ${res.status}`, json)
   } catch {}
 }
 
@@ -544,7 +552,7 @@ try {
 }
 
 if (!res.ok) {
-  console.error('[finalize] raw body:', text.slice(0, 400))
+  reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
   logApiError('finalize', res, json)
   setErr(describeApiError('発行＋PDF保存', res, json))
   if (popup) popup.close()

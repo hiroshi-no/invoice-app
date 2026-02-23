@@ -2,8 +2,11 @@ import 'server-only'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
+const devLog = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') console.log(...args)
+}
+
 export async function createClient() {
-  // Next.js のバージョン差で cookies() が Promise のことがあるため async で扱う
   const cookieStore: any = await cookies()
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -17,14 +20,12 @@ export async function createClient() {
     )
   }
 
-  // 必要なら残す（動作確認できたら消してOK）
-  console.log('SUPABASE_URL=', url)
-  console.log('SUPABASE_KEY_PREFIX=', key.slice(0, 20))
+  devLog('SUPABASE_URL=', url)
+  devLog('SUPABASE_KEY_PREFIX=', key.slice(0, 20))
 
   return createServerClient(url, key, {
     cookies: {
       getAll() {
-        // cookieStore.getAll() がある前提（Next 13/14/15 の通常形）
         return cookieStore.getAll()
       },
       setAll(cookiesToSet) {
@@ -33,7 +34,7 @@ export async function createClient() {
             cookieStore.set(name, value, options)
           })
         } catch {
-          // Server Component で set が禁止されるケース対策（noop）
+          // noop
         }
       },
     },

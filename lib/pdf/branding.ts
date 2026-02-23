@@ -1,4 +1,5 @@
 // lib/pdf/branding.ts
+import 'server-only'
 import { createClient as createSupabaseJsClient } from '@supabase/supabase-js'
 
 export type Branding = {
@@ -6,6 +7,16 @@ export type Branding = {
   brandColor: string
   footerText: string
   logoDataUri: string | null
+}
+
+const isProd = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
+
+const warnBranding = (msg: string, detail?: Record<string, unknown>) => {
+  if (isProd) {
+    console.warn(`[branding] ${msg}`)
+  } else {
+    console.warn(`[branding] ${msg}`, detail ?? {})
+  }
 }
 
 function getSupabaseUrl() {
@@ -34,7 +45,7 @@ export async function loadUserBranding(userSupabase: any, userId: string): Promi
     .maybeSingle()
 
   if (error) {
-    console.warn('[branding] user_settings load failed:', error.message)
+    warnBranding('user_settings load failed', { message: error.message })
     return out
   }
 
@@ -48,15 +59,19 @@ export async function loadUserBranding(userSupabase: any, userId: string): Promi
 
     const { data: blob, error: dlErr } = await sr.storage.from('branding').download(logoPath)
     if (dlErr || !blob) {
-      console.warn('[branding] logo download failed:', dlErr?.message ?? 'no blob', 'path=', logoPath)
+      warnBranding('logo download failed', {
+        message: dlErr?.message ?? 'no blob',
+        path: logoPath, // dev only
+      })
       return out
     }
+
     const ab = await blob.arrayBuffer()
     const base64 = Buffer.from(ab).toString('base64')
     out.logoDataUri = `data:${logoMime};base64,${base64}`
     return out
   } catch (e: any) {
-    console.warn('[branding] logo encode failed:', e?.message ?? e)
+    warnBranding('logo encode failed', { message: e?.message ?? String(e) })
     return out
   }
 }
