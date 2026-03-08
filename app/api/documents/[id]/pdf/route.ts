@@ -48,6 +48,12 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
+   const withCookies = (res: NextResponse) => {
+     for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+     res.headers.set('Cache-Control', 'no-store')
+     return res
+   }
+
   const respondErr = (body: any, status = 500) => {
     const res = NextResponse.json(body, { status })
     for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
@@ -79,8 +85,8 @@ const respondPdf = (pdf: Uint8Array) => {
   }
 
   // rate limit
-  const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
-  if (limited) return limited as any
+const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
+if (limited) return withCookies(limited as NextResponse)
 
   // documents（RLSで見えない場合も 404 にしたい → maybeSingle で 0件を null 扱いにする）
   const { data: doc, error: docErr } = await supabase
