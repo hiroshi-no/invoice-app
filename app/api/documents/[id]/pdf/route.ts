@@ -85,8 +85,8 @@ const respondPdf = (pdf: Uint8Array) => {
   }
 
   // rate limit
-const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
-if (limited) return withCookies(limited as NextResponse)
+  const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
+  if (limited) return withCookies(limited as NextResponse)
 
   // documents（RLSで見えない場合も 404 にしたい → maybeSingle で 0件を null 扱いにする）
   const { data: doc, error: docErr } = await supabase
@@ -154,6 +154,17 @@ if (limited) return withCookies(limited as NextResponse)
     branding,
   })
 
+try {
   const pdf = await renderPdfFromHtml(html)
   return respondPdf(pdf as any)
+} catch (e: any) {
+  console.error('[pdf/preview] render failed', e)
+  return respondErr(
+    {
+      error: 'pdf_render_failed',
+      message: e?.message ?? String(e),
+    },
+    500
+  )
+}
 }
