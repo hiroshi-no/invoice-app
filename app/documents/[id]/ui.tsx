@@ -761,6 +761,70 @@ const busyLabel =
             ? `処理中… (${busy})`
             : ''
 
+async function openPdfPreview() {
+  // クリック直後に空タブ（popup）を開く：ブロック回避
+  const popup = window.open('about:blank', '_blank')
+  if (popup) {
+    try {
+      popup.document.title = 'Loading...'
+      popup.document.body.innerHTML = '<p style="font-family:sans-serif;">PDFを生成しています…</p>'
+    } catch {}
+  }
+
+  try {
+    if (!ensureSavedOrWarn()) {
+      if (popup) popup.close()
+      return
+    }
+
+    const res = await fetch(`/api/documents/${documentId}/pdf`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      let json: any = {}
+      try {
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        json = { raw: text }
+      }
+      const msg = friendlyFinalizeError(res.status, json) // 既存の整形を流用してOK
+      pushErr(msg) // まだpushErrに統一してないなら setErr(msg) でもOK
+      if (popup) {
+        try {
+          popup.document.body.innerHTML =
+            `<p style="font-family:sans-serif;color:#b00020">PDFプレビューに失敗しました：${msg}</p>`
+        } catch {}
+      }
+      return
+    }
+
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+
+    // popupが開けたらそこに表示、開けてないなら通常の新規タブ
+    if (popup) {
+      try {
+        popup.location.href = url
+      } catch {
+        window.open(url, '_blank')
+      }
+    } else {
+      window.open(url, '_blank')
+    }
+
+    // 後片付け（少し待ってから解放）
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (e: any) {
+    const msg = 'Network/JS error: ' + (e?.message ?? String(e))
+    pushErr(msg) // まだなら setErr(msg)
+    if (popup) popup.close()
+  }
+}
+
 return (
 
   <div>
@@ -797,19 +861,15 @@ return (
 
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
 
-      <button
-  type="button"
-  onClick={() => {
-    setErr(null)
-    if (!ensureSavedOrWarn()) return
-    window.open('/api/documents/' + documentId + '/pdf', '_blank')
-  }}
-  disabled={previewDisabled}
-  style={btnStyle(previewDisabled)}
->
-  PDFプレビュー
-</button>
-
+   <button
+     type="button"
+     onClick={openPdfPreview}
+     disabled={previewDisabled}
+     style={btnStyle(previewDisabled)}
+   >
+     PDFプレビュー
+   </button>
+   
 <button type="button" onClick={() => loadFiles()} disabled={refreshDisabled} style={btnStyle(refreshDisabled)}>
   履歴更新
 </button>
