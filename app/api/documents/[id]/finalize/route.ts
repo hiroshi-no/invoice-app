@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { enforceRateLimit } from '@/lib/rateLimit'
 
 type RouteContext =
   | { params: { id: string } }
@@ -14,7 +15,6 @@ const UUID_RE =
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(url, key, {
@@ -31,91 +31,159 @@ function createSupabase(req: NextRequest) {
   return { supabase, cookiesToSet }
 }
 
-async function readJsonOrRaw(res: Response) {
+function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
+  const res = NextResponse.json(body, init)
+  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+  res.headers.set('Cache-Control', 'no-store')
+  return res
+}
+
+async function readJsonOrText(res: Response) {
   const text = await res.text().catch(() => '')
-  try {
-    return { json: text ? JSON.parse(text) : {}, raw: text }
-  } catch {
-    return { json: { raw: text }, raw: text }
+  const json = (() => {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  })()
+  return { text, json }
+}
+
+function isItemsNotSaved(payload: any) {
+  const d = payload?.detail ?? payload
+  return payload?.error === 'items_not_saved' || d?.error === 'items_not_saved'
+}
+
+function sanitizeDebug(payload: any) {
+  // 本番では expected/got を返さない（デバッグ漏洩防止）
+  if (process.env.NODE_ENV !== 'production') return payload
+
+  const clone = JSON.parse(JSON.stringify(payload ?? {}))
+
+  const strip = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return
+    delete obj.expected
+    delete obj.got
+    delete obj.raw
+    for (const k of Object.keys(obj)) strip(obj[k])
   }
+  strip(clone)
+  return clone
+}
+
+function friendlyMessage(stage: 'issue' | 'pdf', status: number, detail: any) {
+  // items_not_saved は最優先で固定文言
+  if (isItemsNotSaved({ detail })) {
+    return '明細が未保存です。編集画面で「保存」してから再実行してください。'
+  }
+  if (status === 404) return '対象が見つかりません。画面を更新して再実行してください。'
+  if (status === 401) return 'ログインが切れました。再ログインしてください。'
+  if (status === 428) return '保存確認（明細ハッシュ）が必要です。編集画面で保存してから再実行してください。'
+  if (status >= 500) {
+    return stage === 'pdf'
+      ? 'PDF保存に失敗しました。時間をおいて再実行してください。'
+      : '発行に失敗しました。時間をおいて再実行してください。'
+  }
+  return stage === 'pdf' ? 'PDF保存に失敗しました。' : '発行に失敗しました。'
 }
 
 export async function POST(req: NextRequest, ctx: RouteContext) {
-  const params = 'then' in ctx.params ? await ctx.params : ctx.params
-  const documentId = String(params.id ?? '')
+  const params = await Promise.resolve((ctx as any).params)
+  const documentId = String((params as any).id ?? '')
+  if (!UUID_RE.test(documentId)) {
+    return NextResponse.json({ error: 'Invalid document id' }, { status: 400 })
+  }
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  const respond = (body: any, status = 200) => {
-    const res = NextResponse.json(body, { status })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
-  }
-
-  if (!UUID_RE.test(documentId)) return respond({ error: 'Invalid document id' }, 400)
-
-  // auth
+  // auth（finalize 側でも先に弾く）
   const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) return respond({ error: userErr?.message ?? 'Not authenticated' }, 401)
-
-  // x-items-hash 必須
-  const itemsHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
-  if (!itemsHash) return respond({ error: 'Precondition required: x-items-hash' }, 428)
-
-  // 状態確認（issued なら issue をスキップして pdf/save だけ実行できるように）
-  const { data: doc, error: docErr } = await supabase
-    .from('documents')
-    .select('id, status')
-    .eq('id', documentId)
-    .maybeSingle()
-
-  if (docErr) return respond({ error: docErr.message }, 500)
-  if (!doc) return respond({ error: 'Document not found' }, 404)
-  if (doc.status !== 'draft' && doc.status !== 'issued') return respond({ error: 'invalid document status' }, 409)
-
-  const origin = req.nextUrl.origin
-  const cookie = req.headers.get('cookie') ?? ''
-
-  const commonHeaders: Record<string, string> = {
-    cookie,
-    'x-confirm-saved-items': '1',
-    'x-items-hash': itemsHash,
+  if (userErr || !userData.user) {
+    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
   }
 
-  // 1) issue（draft の時だけ）
-  let issueResult: any = { skipped: true }
-  if (doc.status === 'draft') {
-    const r1 = await fetch(`${origin}/api/documents/${documentId}/issue`, {
-      method: 'POST',
-      headers: commonHeaders,
-      cache: 'no-store',
-    })
+  // 外部呼び出し（ブラウザ）なので finalize 自体にも rate limit（任意）
+  const limited = await enforceRateLimit(supabase, 'finalize', 10, 60)
+  if (limited) return limited
 
-    const { json, raw } = await readJsonOrRaw(r1)
-    if (!r1.ok) {
-      return respond(
-        { error: 'issue_failed', status: r1.status, detail: json, raw: raw.slice(0, 500) },
-        r1.status
-      )
-    }
-    issueResult = json
+  // header 要件（items-hash を必須化）
+  const clientHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
+  if (!clientHash) {
+    return respondJson(
+      cookiesToSet,
+      { ok: false, error: 'precondition_required', message: '明細ハッシュが必要です。編集画面で保存してから再実行してください。' },
+      { status: 428 }
+    )
   }
-
-  // 2) pdf/save（必ず）
-  const r2 = await fetch(`${origin}/api/documents/${documentId}/pdf/save`, {
-    method: 'POST',
-    headers: commonHeaders,
-    cache: 'no-store',
-  })
-
-  const { json: pdfJson, raw: pdfRaw } = await readJsonOrRaw(r2)
-  if (!r2.ok) {
-    return respond(
-      { error: 'pdf_save_failed', status: r2.status, detail: pdfJson, raw: pdfRaw.slice(0, 500) },
-      r2.status
+  const confirm = (req.headers.get('x-confirm-saved-items') ?? '').trim()
+  if (!confirm) {
+    return respondJson(
+      cookiesToSet,
+      { ok: false, error: 'precondition_required', message: '保存済み確認が必要です（x-confirm-saved-items）。' },
+      { status: 428 }
     )
   }
 
-  return respond({ ok: true, issue: issueResult, pdf: pdfJson }, 200)
+  // 内部呼び出し：cookie を転送して認証を通す
+  const origin = new URL(req.url).origin
+  const cookie = req.headers.get('cookie') ?? ''
+
+  const baseHeaders: Record<string, string> = {
+    cookie,
+    'x-internal-call': '1',
+    'x-items-hash': clientHash,
+    'x-confirm-saved-items': confirm,
+  }
+
+  // 1) issue
+  const issueRes = await fetch(`${origin}/api/documents/${documentId}/issue`, {
+    method: 'POST',
+    headers: baseHeaders,
+    cache: 'no-store',
+  })
+
+  const issueParsed = await readJsonOrText(issueRes)
+
+  if (!issueRes.ok) {
+    const detail = issueParsed.json ?? { raw: issueParsed.text }
+    const body = sanitizeDebug({
+      ok: false,
+      error: 'issue_failed',
+      message: friendlyMessage('issue', issueRes.status, detail),
+      detail,
+    })
+    return respondJson(cookiesToSet, body, { status: issueRes.status })
+  }
+
+  // 2) pdf/save
+  const pdfRes = await fetch(`${origin}/api/documents/${documentId}/pdf/save`, {
+    method: 'POST',
+    headers: baseHeaders,
+    cache: 'no-store',
+  })
+
+  const pdfParsed = await readJsonOrText(pdfRes)
+
+  if (!pdfRes.ok) {
+    const detail = pdfParsed.json ?? { raw: pdfParsed.text }
+    const body = sanitizeDebug({
+      ok: false,
+      error: 'pdf_save_failed',
+      message: friendlyMessage('pdf', pdfRes.status, detail),
+      issue: issueParsed.json ?? { raw: issueParsed.text },
+      detail,
+    })
+    return respondJson(cookiesToSet, body, { status: pdfRes.status })
+  }
+
+  return respondJson(
+    cookiesToSet,
+    sanitizeDebug({
+      ok: true,
+      issue: issueParsed.json ?? { raw: issueParsed.text },
+      pdf: pdfParsed.json ?? { raw: pdfParsed.text },
+    }),
+    { status: 200 }
+  )
 }

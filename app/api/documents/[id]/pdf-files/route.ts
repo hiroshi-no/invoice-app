@@ -14,7 +14,6 @@ const UUID_RE =
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(url, key, {
@@ -27,51 +26,93 @@ function createSupabase(req: NextRequest) {
       },
     },
   })
-
   return { supabase, cookiesToSet }
 }
 
+function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
+  const res = NextResponse.json(body, init)
+  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+  res.headers.set('Cache-Control', 'no-store')
+  return res
+}
+
 export async function GET(req: NextRequest, ctx: RouteContext) {
-  const params = 'then' in ctx.params ? await ctx.params : ctx.params
-  const documentId = String(params.id ?? '')
-
-  if (!UUID_RE.test(documentId)) {
-    return NextResponse.json({ error: 'Invalid document id' }, { status: 400 })
-  }
-
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  const json = (body: any, init?: ResponseInit) => {
-    const res = NextResponse.json(body, init)
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
-  }
+  const params = 'then' in (ctx.params as any) ? await (ctx.params as any) : (ctx.params as any)
+  const documentId = String(params?.id ?? '')
+  if (!UUID_RE.test(documentId)) return respondJson(cookiesToSet, { error: 'Invalid document id' }, { status: 400 })
 
   // auth
   const { data: userData, error: userErr } = await supabase.auth.getUser()
   if (userErr || !userData.user) {
-    return json({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
   }
 
-  // documents存在確認（RLSで見えなければ404）
+  // doc → orgId確定（RLSで見えない場合も 404）
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id')
+    .select('id, org_id')
     .eq('id', documentId)
     .maybeSingle()
 
-  if (docErr) return json({ error: docErr.message }, { status: 500 })
-  if (!doc) return json({ error: 'Document not found' }, { status: 404 })
+  if (docErr) return respondJson(cookiesToSet, { error: docErr.message }, { status: 500 })
+  if (!doc) return respondJson(cookiesToSet, { error: 'document_not_found' }, { status: 404 })
 
-  // 履歴：0件でも 200 + files: [] を返す（重要）
-  const { data: rows, error: rowsErr } = await supabase
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return respondJson(cookiesToSet, { error: 'org_id invalid' }, { status: 500 })
+
+// files（まず org で絞る）
+let rows: any[] = []
+{
+  const r = await supabase
     .from('document_files')
-    .select('id, created_at, path') // ← あなたのschemaに合わせて path
+    .select('*')
+    .eq('document_id', documentId)
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (r.error) return respondJson(cookiesToSet, { error: r.error.message }, { status: 500 })
+  rows = (r.data ?? []) as any[]
+}
+
+// ★フォールバック：org_id が NULL で保存されている過去データ等を拾う
+if (rows.length === 0) {
+  const r2 = await supabase
+    .from('document_files')
+    .select('*')
     .eq('document_id', documentId)
     .order('created_at', { ascending: false })
+    .limit(100)
 
-  if (rowsErr) return json({ error: rowsErr.message }, { status: 500 })
+  if (r2.error) return respondJson(cookiesToSet, { error: r2.error.message }, { status: 500 })
+  rows = (r2.data ?? []) as any[]
+}
 
-  return json({ files: rows ?? [] }, { status: 200 })
+  const files = (rows ?? []).map((r: any) => {
+  const id = String(r.id ?? '')
+  const path = String(r.path ?? r.storage_path ?? '')
+
+  // ★ここ：mime を補完（.pdf なら application/pdf）
+ // let mime = String(r.mime ?? r.content_type ?? r.file_mime ?? '').trim()
+ // if (!mime && /\.pdf$/i.test(path)) mime = 'application/pdf'
+   let mime = ''
+   if (/\.pdf$/i.test(path)) mime = 'application/pdf'
+  // ★ここ：サイズ列の候補を増やす（無ければ 0 のまま）
+  const sizeRaw = r.size_bytes ?? r.size ?? r.bytes ?? r.file_size ?? r.filesize ?? 0
+  const size = Number(sizeRaw ?? 0)
+
+  const createdAt = r.created_at ?? null
+
+  return {
+    id,
+    path,
+    mime,
+    size,
+    created_at: createdAt,
+    download_url: id ? `/api/documents/${documentId}/pdf-files/${id}/download` : null,
+  }
+})
+  return respondJson(cookiesToSet, { ok: true, org_id: orgId, document_id: documentId, files }, { status: 200 })
 }

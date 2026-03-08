@@ -17,6 +17,7 @@ export default function BrandingSettings() {
   const [state, setState] = useState<State>({ loading: true })
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [imgRev, setImgRev] = useState(0)
 
   const load = async () => {
     setErr(null)
@@ -40,7 +41,7 @@ export default function BrandingSettings() {
         path: logo?.path ?? null,
         mime: logo?.mime ?? null,
       })
-
+      setImgRev(Date.now())
   }
 
   useEffect(() => {
@@ -105,8 +106,8 @@ const imageUrl = state.loading ? null : state.imageUrl
 const imgSrc = useMemo(() => {
   if (!imageUrl) return null
   const sep = imageUrl.includes('?') ? '&' : '?'
-  return `${imageUrl}${sep}t=${Date.now()}`
-}, [imageUrl])
+  return `${imageUrl}${sep}t=${imgRev}`
+}, [imageUrl, imgRev])
 
   return (
     <section style={{ maxWidth: 720 }}>

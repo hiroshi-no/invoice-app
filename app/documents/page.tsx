@@ -1,19 +1,29 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+// cookies() が同期/非同期どっちでも安全に扱う
+async function getCookieStore() {
+  const c: any = cookies()
+  return typeof c?.then === 'function' ? await c : c
+}
+
 async function createSupabase() {
-  const cookieStore = await cookies()
+  const cookieStore = await getCookieStore()
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
   return createServerClient(url, key, {
     cookies: {
       getAll() {
-        return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }))
+        return cookieStore.getAll().map((c: any) => ({ name: c.name, value: c.value }))
       },
       // Server Componentでは set はできないので no-op
       setAll() {
@@ -26,12 +36,31 @@ async function createSupabase() {
 export default async function DocumentsPage() {
   const supabase = await createSupabase()
 
-  const { data: userData } = await supabase.auth.getUser()
-  if (!userData.user) {
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
         <h1>Documents</h1>
-        <p>Not logged in. <Link href="/login">Go to login</Link></p>
+        <p>
+          Not logged in. <Link href="/login">Go to login</Link>
+        </p>
+      </div>
+    )
+  }
+
+  // ✅ current org を確定 → documents を org で絞る
+  let orgId: string
+  try {
+    orgId = await getCurrentOrgId(supabase as any, userData.user.id)
+    if (!UUID_RE.test(orgId)) throw new Error('current_org_id invalid')
+  } catch (e: any) {
+    return (
+      <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
+        <h1>Documents</h1>
+        <p style={{ color: 'crimson' }}>Error: {e?.message ?? 'org not found'}</p>
+        <p>
+          <Link href="/dashboard/monthly">Back</Link>
+        </p>
       </div>
     )
   }
@@ -39,6 +68,7 @@ export default async function DocumentsPage() {
   const { data: docs, error } = await supabase
     .from('documents')
     .select('id, doc_type, status, document_no, issued_at, total_amount, currency, customer_id')
+    .eq('org_id', orgId) // ✅ org整合
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -63,7 +93,7 @@ export default async function DocumentsPage() {
           </tr>
         </thead>
         <tbody>
-          {(docs ?? []).map((d) => (
+          {(docs ?? []).map((d: any) => (
             <tr key={d.id}>
               <td style={td}>{d.doc_type}</td>
               <td style={td}>{d.document_no ?? '-'}</td>
@@ -79,7 +109,9 @@ export default async function DocumentsPage() {
           ))}
           {(docs ?? []).length === 0 && (
             <tr>
-              <td style={td} colSpan={6}>No documents yet.</td>
+              <td style={td} colSpan={6}>
+                No documents yet.
+              </td>
             </tr>
           )}
         </tbody>

@@ -1,4 +1,5 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
@@ -11,6 +12,7 @@ const UUID_RE =
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(url, key, {
@@ -23,23 +25,111 @@ function createSupabase(req: NextRequest) {
       },
     },
   })
+
   return { supabase, cookiesToSet }
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
-  const p = 'then' in ctx.params ? await ctx.params : ctx.params
-  const documentId = String(p.id ?? '')
+async function unwrapParams(ctx: RouteContext) {
+  const p = (ctx as any).params
+  return 'then' in p ? await p : p
+}
+
+async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
+  const params = await unwrapParams(ctx)
+  const documentId = String((params as any)?.id ?? '')
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  // ✅ どのreturnでもCookieを積む
   const respond = (body: any, init?: ResponseInit) => {
     const res = NextResponse.json(body, init)
     for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    res.headers.set('Cache-Control', 'no-store')
     return res
   }
 
-  // ✅ UUIDバリデーション
+  if (!UUID_RE.test(documentId)) {
+    return respond({ error: 'Invalid document id' }, { status: 400 })
+  }
+
+  // auth
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) {
+    return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  }
+
+  const body = await req.json().catch(() => ({}))
+
+  // doc取得（RLSで見えない=404）
+  const { data: doc, error: docErr } = await supabase
+    .from('documents')
+    .select('id, org_id, status')
+    .eq('id', documentId)
+    .maybeSingle()
+
+  if (docErr) return respond({ error: docErr.message }, { status: 500 })
+  if (!doc) return respond({ error: 'Not found' }, { status: 404 })
+
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return respond({ error: 'Document org_id not found' }, { status: 500 })
+
+  // draftのみ更新可
+  if ((doc as any).status !== 'draft') {
+    return respond({ error: 'document status must be draft' }, { status: 409 })
+  }
+
+  // customer_id を更新する場合は「同orgの customer か」検証（安全策）
+  const nextCustomerId = body?.customer_id ?? null
+  if (nextCustomerId) {
+    const idStr = String(nextCustomerId)
+    // customer_id が UUID の前提ならチェック（違う型ならここは外してください）
+    if (!UUID_RE.test(idStr)) return respond({ error: 'Invalid customer_id' }, { status: 400 })
+
+    const { data: c, error: cErr } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('id', idStr)
+      .eq('org_id', orgId)
+      .maybeSingle()
+
+    if (cErr) return respond({ error: cErr.message }, { status: 500 })
+    if (!c) return respond({ error: 'Invalid customer_id' }, { status: 400 })
+  }
+
+  const patch: any = {
+    customer_id: nextCustomerId,
+    title: body?.title ?? null,
+    notes: body?.notes ?? null,
+    due_date: body?.due_date ?? null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data: updated, error: upErr } = await supabase
+    .from('documents')
+    .update(patch)
+    .eq('id', documentId)
+    .eq('org_id', orgId) // ✅ org整合
+    .select('*')
+    .maybeSingle()
+
+  if (upErr) return respond({ error: upErr.message }, { status: 500 })
+  if (!updated) return respond({ error: 'Not found' }, { status: 404 })
+
+  return respond({ document: updated }, { status: 200 })
+}
+
+// GET /api/documents/[id]
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  const params = await unwrapParams(ctx)
+  const documentId = String((params as any)?.id ?? '')
+
+  const { supabase, cookiesToSet } = createSupabase(req)
+  const respond = (body: any, init?: ResponseInit) => {
+    const res = NextResponse.json(body, init)
+    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    res.headers.set('Cache-Control', 'no-store')
+    return res
+  }
+
   if (!UUID_RE.test(documentId)) {
     return respond({ error: 'Invalid document id' }, { status: 400 })
   }
@@ -49,36 +139,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
   }
 
-  const body = await req.json().catch(() => ({}))
-
-  // draftのみ更新可
-  const { data: doc, error: docErr } = await supabase
+  const { data: doc, error } = await supabase
     .from('documents')
-    .select('id,status')
-    .eq('id', documentId)
-    .single()
-
-  if (docErr) return respond({ error: docErr.message }, { status: 500 })
-  if (!doc) return respond({ error: 'Not found' }, { status: 404 })
-  if (doc.status !== 'draft') return respond({ error: 'document status must be draft' }, { status: 409 })
- 
-
-  const patch: any = {
-    customer_id: body.customer_id ?? null,
-    title: body.title ?? null,
-    notes: body.notes ?? null,
-    due_date: body.due_date ?? null,
-    updated_at: new Date().toISOString(),
-  }
-
-  const { data, error } = await supabase
-    .from('documents')
-    .update(patch)
-    .eq('id', documentId)
     .select('*')
-    .single()
+    .eq('id', documentId)
+    .maybeSingle()
 
   if (error) return respond({ error: error.message }, { status: 500 })
+  if (!doc) return respond({ error: 'Not found' }, { status: 404 })
 
-  return respond({ document: data }, { status: 200 })
+  return respond({ document: doc }, { status: 200 })
+}
+
+// PATCH /api/documents/[id]
+export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  return updateDocumentMeta(req, ctx)
+}
+
+// PUT /api/documents/[id]（互換用）
+export async function PUT(req: NextRequest, ctx: RouteContext) {
+  return updateDocumentMeta(req, ctx)
 }

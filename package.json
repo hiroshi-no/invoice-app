@@ -7,19 +7,22 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@sparticuz/chromium-min": "^143.0.4",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.1",
     "next": "16.1.1",
-    "puppeteer": "^24.35.0",
+    "puppeteer-core": "^24.38.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.70.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@sparticuz/chromium": "^143.0.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

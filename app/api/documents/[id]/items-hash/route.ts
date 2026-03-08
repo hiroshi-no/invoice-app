@@ -30,48 +30,61 @@ function createSupabase(req: NextRequest) {
   return { supabase, cookiesToSet }
 }
 
+function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
+  const res = NextResponse.json(body, init)
+  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+  res.headers.set('Cache-Control', 'no-store')
+  return res
+}
+
 export async function GET(req: NextRequest, ctx: RouteContext) {
-  const params = 'then' in ctx.params ? await ctx.params : ctx.params
-  const documentId = String(params.id ?? '')
-
-  if (!UUID_RE.test(documentId)) {
-    return NextResponse.json({ error: 'Invalid document id' }, { status: 400 })
-  }
-
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  const json = (body: any, status = 200) => {
-    const res = NextResponse.json(body, { status })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
-  }
+  const params = 'then' in (ctx.params as any) ? await (ctx.params as any) : (ctx.params as any)
+  const documentId = String(params?.id ?? '')
+  if (!UUID_RE.test(documentId)) return respondJson(cookiesToSet, { error: 'Invalid document id' }, { status: 400 })
 
   const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) return json({ error: 'Not authenticated' }, 401)
+  if (userErr || !userData.user) {
+    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  }
 
-  // doc存在確認（RLSで見えなければ404）
-  const { data: doc, error: docErr } = await supabase.from('documents').select('id').eq('id', documentId).maybeSingle()
-  if (docErr) return json({ error: docErr.message }, 500)
-  if (!doc) return json({ error: 'Document not found' }, 404)
+  // doc → orgId確定（RLSで見えない場合も 404）
+  const { data: doc, error: docErr } = await supabase
+    .from('documents')
+    .select('id, org_id')
+    .eq('id', documentId)
+    .maybeSingle()
 
-const { data: items, error: itemsErr } = await supabase
-  .from('document_items')
-  .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
-  .eq('document_id', documentId)
-  .order('position', { ascending: true })
-  .order('id', { ascending: true })
+  if (docErr) return respondJson(cookiesToSet, { error: docErr.message }, { status: 500 })
+  if (!doc) return respondJson(cookiesToSet, { error: 'document_not_found' }, { status: 404 })
 
-if (itemsErr) return json({ error: itemsErr.message }, 500)
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return respondJson(cookiesToSet, { error: 'org_id invalid' }, { status: 500 })
 
-const rowsForHash = (items ?? []).map((it: any) => ({
-  position: it.position,
-  description: it.description,
-  quantity: it.quantity,
-  unit_price_amount: it.unit_price_amount,
-  line_subtotal_amount: it.line_subtotal_amount,
-}))
+  const { data: items, error: itemsErr } = await supabase
+    .from('document_items')
+    .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
+    .eq('document_id', documentId)
+    .eq('org_id', orgId)
+    .order('position', { ascending: true })
+    .order('id', { ascending: true })
 
-const itemsHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toLowerCase()
-return json({ ok: true, itemsHash }, 200)
+  if (itemsErr) return respondJson(cookiesToSet, { error: itemsErr.message }, { status: 500 })
+
+  const rowsForHash = (items ?? []).map((it: any) => ({
+    position: Number(it.position ?? 0),
+    description: it.description ?? null,
+    quantity: Number(it.quantity ?? 0),
+    unit_price_amount: Number(it.unit_price_amount ?? 0),
+    line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
+  }))
+
+  const h = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toLowerCase()
+
+  return respondJson(
+    cookiesToSet,
+    { ok: true, org_id: orgId, document_id: documentId, items_hash: h, hash: h, itemsHash: h },
+    { status: 200 }
+  )
 }

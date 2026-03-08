@@ -3,8 +3,12 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
 type RouteContext = { params: { ym: string } | Promise<{ ym: string }> }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isYm(v: string) {
   return /^\d{4}-\d{2}$/.test(v)
@@ -47,12 +51,12 @@ function csvEscape(v: any) {
   return s
 }
 
-   function formatDateJst(v: any) {
-     if (!v) return ''
-     // JSTで YYYY-MM-DD を出す（CSV用途）
-     const s = new Date(v).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }) // => 2026-02-04
-     return s
-   }
+function formatDateJst(v: any) {
+  if (!v) return ''
+  // JSTで YYYY-MM-DD を出す（CSV用途）
+  const s = new Date(v).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }) // => 2026-02-04
+  return s
+}
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
   try {
@@ -64,6 +68,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     const json = (body: any, init?: ResponseInit) => {
       const res = NextResponse.json(body, init)
       for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+      res.headers.set('Cache-Control', 'no-store')
       return res
     }
 
@@ -73,14 +78,26 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     const { data: userData, error: userErr } = await supabase.auth.getUser()
     if (userErr || !userData.user) return json({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
 
-   // issued_at が timestamptz（UTC保存）でも月境界がズレないように JST(+09:00) を明示
-   const from = `${ym}-01T00:00:00+09:00`
-   const to = `${nextYm(ym)}-01T00:00:00+09:00`
+    const userId = userData.user.id
 
-    // issued のみ（月内）
+    // ✅ current org を確定（profiles直読みは lib に集約）
+    let orgId: string
+    try {
+      orgId = await getCurrentOrgId(supabase as any, userId)
+      if (!UUID_RE.test(orgId)) throw new Error('current_org_id invalid')
+    } catch (e: any) {
+      return json({ error: e?.message ?? 'org not found' }, { status: 500 })
+    }
+
+    // issued_at が timestamptz（UTC保存）でも月境界がズレないように JST(+09:00) を明示
+    const from = `${ym}-01T00:00:00+09:00`
+    const to = `${nextYm(ym)}-01T00:00:00+09:00`
+
+    // issued のみ（月内）+ orgで絞る
     const { data: docs, error: docErr } = await supabase
       .from('documents')
       .select('id, document_no, issued_at, currency, subtotal_amount, tax_amount, total_amount, customer_id')
+      .eq('org_id', orgId)
       .eq('status', 'issued')
       .gte('issued_at', from)
       .lt('issued_at', to)
@@ -101,6 +118,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
         .from('customers')
         .select('id, name')
         .in('id', customerIds)
+        .eq('org_id', orgId)
 
       if (cusErr) return json({ error: 'customers load failed: ' + cusErr.message }, { status: 500 })
 

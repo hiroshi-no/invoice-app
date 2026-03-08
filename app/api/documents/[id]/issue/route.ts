@@ -5,9 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
 
-type RouteContext =
-  | { params: { id: string } }
-  | { params: Promise<{ id: string }> }
+type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -41,6 +39,14 @@ async function issueViaRpc(supabase: any, documentId: string) {
   return { data, error }
 }
 
+type HashRow = {
+  position: number
+  description: string | null
+  quantity: number
+  unit_price_amount: number
+  line_subtotal_amount: number | null
+}
+
 export async function POST(req: NextRequest, ctx: RouteContext) {
   const params = await Promise.resolve((ctx as any).params)
   const documentId = String((params as any).id ?? '')
@@ -54,6 +60,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const respond = (body: any, init?: ResponseInit) => {
     const res = NextResponse.json(body, init)
     for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    res.headers.set('Cache-Control', 'no-store')
     return res
   }
 
@@ -65,19 +72,20 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     }
 
     // documents.status を見て draft 以外を 409（RLSで見えない時は 404）
+    // ✅ org_id も取って確定
     const { data: docHead, error: headErr } = await supabase
       .from('documents')
-      .select('id,status')
+      .select('id, org_id, status')
       .eq('id', documentId)
-      .single()
+      .maybeSingle()
 
-    if (headErr) {
-      if ((headErr as any).code === 'PGRST116') return respond({ error: 'Document not found' }, { status: 404 })
-      return respond({ error: headErr.message }, { status: 500 })
-    }
+    if (headErr) return respond({ error: headErr.message }, { status: 500 })
     if (!docHead) return respond({ error: 'Document not found' }, { status: 404 })
 
-    if (docHead.status !== 'draft') {
+    const orgId = String((docHead as any).org_id ?? '')
+    if (!UUID_RE.test(orgId)) return respond({ error: 'Document org_id not found' }, { status: 500 })
+
+    if ((docHead as any).status !== 'draft') {
       return respond({ error: 'document status must be draft' }, { status: 409 })
     }
 
@@ -87,32 +95,26 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       return respond({ error: 'Precondition required: x-items-hash' }, { status: 428 })
     }
 
-const { data: dbItems, error: itemsErr } = await supabase
-  .from('document_items')
-  .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
-  .eq('document_id', documentId)
-  .order('position', { ascending: true })
-  .order('id', { ascending: true })
+    // ✅ items 取得に org_id 条件を追加
+    const { data: dbItems, error: itemsErr } = await supabase
+      .from('document_items')
+      .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
+      .eq('document_id', documentId)
+      .eq('org_id', orgId)
+      .order('position', { ascending: true })
+      .order('id', { ascending: true })
 
-if (itemsErr) return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
+    if (itemsErr) return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
 
-type HashRow = {
-  position: number
-  description: string | null
-  quantity: number
-  unit_price_amount: number
-  line_subtotal_amount: number | null
-}
+    const rowsForHash: HashRow[] = (dbItems ?? []).map((it: any) => ({
+      position: Number(it.position ?? 0),
+      description: it.description ?? null,
+      quantity: Number(it.quantity ?? 0),
+      unit_price_amount: Number(it.unit_price_amount ?? 0),
+      line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
+    }))
 
-const rowsForHash: HashRow[] = (dbItems ?? []).map((it: any) => ({
-  position: Number(it.position ?? 0),
-  description: it.description ?? null,
-  quantity: Number(it.quantity ?? 0),
-  unit_price_amount: Number(it.unit_price_amount ?? 0),
-  line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
-}))
-
-const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).toLowerCase()
+    const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).toLowerCase()
 
     if (clientHash !== dbHash) {
       return respond(
@@ -121,7 +123,7 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).t
           message:
             '明細が未保存（またはDBと不一致）のため発行できません。編集画面で保存してから再実行してください。',
           expected: dbHash, // 本番は消してOK
-          got: clientHash,  // 本番は消してOK
+          got: clientHash, // 本番は消してOK
         },
         { status: 409 }
       )
@@ -136,19 +138,18 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).t
     }
 
     // 再取得（RLSで見えないなら404）
+    // ✅ org_id 条件も付ける（安全）
     const { data: doc, error: docErr } = await supabase
       .from('documents')
-      .select('id,status,document_no,issued_at,currency,customer_id,subtotal_amount,tax_amount,total_amount')
+      .select('id, org_id, status, document_no, issued_at, currency, customer_id, subtotal_amount, tax_amount, total_amount')
       .eq('id', documentId)
-      .single()
+      .eq('org_id', orgId)
+      .maybeSingle()
 
-    if (docErr) {
-      if ((docErr as any).code === 'PGRST116') return respond({ error: 'Document not found' }, { status: 404 })
-      return respond({ error: docErr.message }, { status: 500 })
-    }
+    if (docErr) return respond({ error: docErr.message }, { status: 500 })
     if (!doc) return respond({ error: 'Document not found' }, { status: 404 })
 
-    if (doc.status !== 'issued') {
+    if ((doc as any).status !== 'issued') {
       return respond({ error: 'Issue did not change status to issued' }, { status: 500 })
     }
 

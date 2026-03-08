@@ -5,9 +5,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { calcTotals } from '@/lib/calc'
-import { loadUserBranding } from '@/lib/pdf/branding'
+import { loadOrgBranding } from '@/lib/pdf/branding'
 import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
+import { enforceRateLimit } from '@/lib/rateLimit'
+import { Buffer } from 'node:buffer'
 
 type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
 
@@ -46,12 +48,15 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
-const respondPdf = (pdf: Uint8Array) => {
-  const ab = new ArrayBuffer(pdf.byteLength)
-  const view = new Uint8Array(ab)
-  view.set(pdf)
+  const respondErr = (body: any, status = 500) => {
+    const res = NextResponse.json(body, { status })
+    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    return res
+  }
 
-  const res = new NextResponse(view, {
+const respondPdf = (pdf: Uint8Array) => {
+  const body = Buffer.from(pdf) // ✅ Uint8Array -> Buffer(=BodyInit扱い)
+  const res = new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
@@ -63,46 +68,45 @@ const respondPdf = (pdf: Uint8Array) => {
   return res
 }
 
-  const respondErr = (body: any, status = 500) => {
-    const res = NextResponse.json(body, { status })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    return res
-  }
-
   if (!UUID_RE.test(documentId)) {
     return respondErr({ error: 'Invalid document id' }, 400)
   }
 
+  // auth
   const { data: userData, error: userErr } = await supabase.auth.getUser()
   if (userErr || !userData.user) {
     return respondErr({ error: userErr?.message ?? 'Not authenticated' }, 401)
   }
-  const userId = userData.user.id
 
-  // documents（RLSで見えない場合も 404 にしたい）
+  // rate limit
+  const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
+  if (limited) return limited as any
+
+  // documents（RLSで見えない場合も 404 にしたい → maybeSingle で 0件を null 扱いにする）
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, customer_id, status, currency, document_no, issued_at')
+    .select('id, org_id, customer_id, status, currency, document_no, issued_at')
     .eq('id', documentId)
-    .single()
+    .maybeSingle()
 
-  if (docErr) {
-    // ✅ 0件（RLSで見えない/存在しない）を 404 に寄せる
-    if ((docErr as any).code === 'PGRST116') return respondErr({ error: 'Document not found' }, 404)
-    return respondErr({ error: docErr.message }, 500)
-  }
+  if (docErr) return respondErr({ error: docErr.message }, 500)
   if (!doc) return respondErr({ error: 'Document not found' }, 404)
 
-  // branding（個人専用 user_settings）
-  const branding = await loadUserBranding(supabase, userId)
+  // ✅ orgId を確定（branding / items / customer などで使う）
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return respondErr({ error: 'Document org_id not found' }, 500)
+
+  // ✅ branding（org共通 user_settings）
+  const branding = await loadOrgBranding(supabase as any, orgId)
 
   // customer（任意：見えない/無いなら空のまま）
   let customerName = ''
-  if (doc.customer_id) {
+  if ((doc as any).customer_id) {
     const { data: customer, error: cErr } = await supabase
       .from('customers')
       .select('name')
-      .eq('id', doc.customer_id)
+      .eq('id', (doc as any).customer_id)
+      .eq('org_id', orgId)
       .maybeSingle()
 
     if (!cErr) customerName = String((customer as any)?.name ?? '')
@@ -113,30 +117,30 @@ const respondPdf = (pdf: Uint8Array) => {
     .from('document_items')
     .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
     .eq('document_id', documentId)
+    .eq('org_id', orgId)
     .order('position', { ascending: true })
 
   if (itemsErr) return respondErr({ error: itemsErr.message }, 500)
 
   // pdf/save と同じ計算（line_subtotal_amount を優先、なければ qty*unit）
- const rows = (items ?? []).map((it: any) => {
-   const qty = num(it.quantity)
-   const unit = num(it.unit_price_amount)
+  const rows = (items ?? []).map((it: any) => {
+    const qty = num(it.quantity)
+    const unit = num(it.unit_price_amount)
 
-   const dbLineRaw = it.line_subtotal_amount
-   const line = dbLineRaw == null ? qty * unit : num(dbLineRaw)
+    const dbLineRaw = it.line_subtotal_amount
+    const line = dbLineRaw == null ? qty * unit : num(dbLineRaw)
 
-   return { description: it.description ?? '', qty, unit, line }
- })
-
+    return { description: it.description ?? '', qty, unit, line }
+  })
 
   const subtotal = rows.reduce((a, r) => a + num(r.line), 0)
-  const currency = String(doc.currency ?? 'JPY')
+  const currency = String((doc as any).currency ?? 'JPY')
   const totals = calcTotals(subtotal, currency)
 
   const html = buildInvoiceHtml({
     title: 'INVOICE',
-    documentNo: String(doc.document_no ?? doc.id),
-    issuedAt: String(doc.issued_at ?? ''),
+    documentNo: String((doc as any).document_no ?? (doc as any).id),
+    issuedAt: String((doc as any).issued_at ?? ''),
     customerName,
     currency,
     rows,
@@ -145,5 +149,5 @@ const respondPdf = (pdf: Uint8Array) => {
   })
 
   const pdf = await renderPdfFromHtml(html)
-  return respondPdf(pdf)
+  return respondPdf(pdf as any)
 }

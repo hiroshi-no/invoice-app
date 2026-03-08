@@ -1,77 +1,130 @@
 // lib/pdf/branding.ts
-import 'server-only'
-import { createClient as createSupabaseJsClient } from '@supabase/supabase-js'
+import { Buffer } from 'node:buffer'
+import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+
+export type TemplateKey = 'classic' | 'minimal'
 
 export type Branding = {
-  templateKey: 'classic' | 'minimal'
+  // buildInvoiceHtml が参照する
   brandColor: string
+  templateKey: TemplateKey
   footerText: string
   logoDataUri: string | null
+
+  // 互換（他コードが参照してても壊れないよう残す）
+  logoDataUrl: string | null
+  logoMime: string | null
+  logoPath: string | null
 }
 
-const isProd = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
+const DEFAULT_BRAND_COLOR = '#111827'
+const DEFAULT_TEMPLATE: TemplateKey = 'classic'
+const DEFAULT_FOOTER = ''
 
-const warnBranding = (msg: string, detail?: Record<string, unknown>) => {
-  if (isProd) {
-    console.warn(`[branding] ${msg}`)
-  } else {
-    console.warn(`[branding] ${msg}`, detail ?? {})
-  }
+function pickNonEmptyString(v: any, fallback: string) {
+  return typeof v === 'string' && v.trim() ? v.trim() : fallback
 }
 
-function getSupabaseUrl() {
-  return process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+function pickTemplateKey(v: any): TemplateKey {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s === 'minimal' ? 'minimal' : 'classic'
 }
 
-function getServiceRoleClient() {
-  const url = getSupabaseUrl()
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-  if (!url || !key) return null
-  return createSupabaseJsClient(url, key, { auth: { persistSession: false } })
-}
-
-export async function loadUserBranding(userSupabase: any, userId: string): Promise<Branding> {
-  const out: Branding = {
-    templateKey: 'classic',
-    brandColor: '#111827',
-    footerText: '',
-    logoDataUri: null,
-  }
-
-  const { data: settings, error } = await userSupabase
+export async function loadOrgBranding(supabase: any, orgId: string): Promise<Branding> {
+  // ※DBカラムが無い環境でも壊れないよう、まずはロゴだけ読む（最小）
+  const { data: settings, error: sErr } = await supabase
     .from('user_settings')
     .select('logo_path, logo_mime')
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .maybeSingle()
 
-  if (error) {
-    warnBranding('user_settings load failed', { message: error.message })
-    return out
-  }
+  if (sErr) throw new Error(sErr.message)
 
   const logoPath = String((settings as any)?.logo_path ?? '')
   const logoMime = String((settings as any)?.logo_mime ?? '')
-  if (!logoPath || !logoMime) return out
+
+  // ロゴ以外はデフォルト（DB拡張するなら後でここを select に追加）
+  const brandColor = DEFAULT_BRAND_COLOR
+  const templateKey = DEFAULT_TEMPLATE
+  const footerText = DEFAULT_FOOTER
+
+  if (!logoPath) {
+    return {
+      brandColor,
+      templateKey,
+      footerText,
+      logoDataUri: null,
+      logoDataUrl: null,
+      logoMime: null,
+      logoPath: null,
+    }
+  }
+
+  const { data: blob, error: dErr } = await supabase.storage.from('branding').download(logoPath)
+  if (dErr || !blob) {
+    return {
+      brandColor,
+      templateKey,
+      footerText,
+      logoDataUri: null,
+      logoDataUrl: null,
+      logoMime: logoMime || null,
+      logoPath,
+    }
+  }
+
+  const ab = await blob.arrayBuffer()
+  const buf = Buffer.from(ab)
+  const mime = logoMime || (blob as any).type || 'image/png'
+  const dataUri = `data:${mime};base64,${buf.toString('base64')}`
+
+  return {
+    brandColor,
+    templateKey,
+    footerText,
+    logoDataUri: dataUri,
+    logoDataUrl: dataUri, // 互換
+    logoMime: mime,
+    logoPath,
+  }
+}
+/**
+ * 互換：userId -> current_org_id -> org branding
+ */
+export async function loadUserBranding(supabase: any, userId: string): Promise<Branding> {
+  let orgId: string | null = null
 
   try {
-    const sr = getServiceRoleClient()
-    if (!sr) return out
-
-    const { data: blob, error: dlErr } = await sr.storage.from('branding').download(logoPath)
-    if (dlErr || !blob) {
-      warnBranding('logo download failed', {
-        message: dlErr?.message ?? 'no blob',
-        path: logoPath, // dev only
-      })
-      return out
-    }
-
-    const ab = await blob.arrayBuffer()
-    const base64 = Buffer.from(ab).toString('base64')
-    out.logoDataUri = `data:${logoMime};base64,${base64}`
-    return out
+    orgId = await getCurrentOrgId(supabase, userId)
   } catch (e: any) {
-    warnBranding('logo encode failed', { message: e?.message ?? String(e) })
-    return out
+    // 以前の挙動：org が取れない（未設定/行なし）ときはデフォルトにフォールバック
+    const msg = String(e?.message ?? '')
+    if (msg.includes('current_org_id not found')) {
+      return {
+        brandColor: DEFAULT_BRAND_COLOR,
+        templateKey: DEFAULT_TEMPLATE,
+        footerText: DEFAULT_FOOTER,
+        logoDataUri: null,
+        logoDataUrl: null,
+        logoMime: null,
+        logoPath: null,
+      }
+    }
+    // DBエラー等はそのまま上に投げる（旧: pErr を throw してたのと同等）
+    throw e
   }
+
+  if (!orgId) {
+    return {
+      brandColor: DEFAULT_BRAND_COLOR,
+      templateKey: DEFAULT_TEMPLATE,
+      footerText: DEFAULT_FOOTER,
+      logoDataUri: null,
+      logoDataUrl: null,
+      logoMime: null,
+      logoPath: null,
+    }
+  }
+
+  return loadOrgBranding(supabase, String(orgId))
 }

@@ -15,7 +15,6 @@ const UUID_RE =
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
   const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
 
   const supabase = createServerClient(url, key, {
@@ -28,59 +27,82 @@ function createSupabase(req: NextRequest) {
       },
     },
   })
-
   return { supabase, cookiesToSet }
 }
 
-function createSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+function createServiceSupabase() {
+  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  if (!serviceKey) throw new Error('Missing env: SUPABASE_SERVICE_ROLE_KEY')
   return createClient(url, serviceKey, { auth: { persistSession: false } })
 }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
-  const params = 'then' in ctx.params ? await ctx.params : ctx.params
-  const documentId = String(params.id ?? '')
-  const fileId = String(params.fileId ?? '')
-
-  if (!UUID_RE.test(documentId) || !UUID_RE.test(fileId)) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
-  }
-
-  const { supabase, cookiesToSet } = createSupabase(req)
-
-  const json = (body: any, status = 200) => {
-    const res = NextResponse.json(body, { status })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
-  }
-
-  // auth（DB参照はユーザーセッションで）
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) return json({ error: 'Not authenticated' }, 401)
-
-  // document_files から path を取得（RLSで自分の行だけ見える）
-  const { data: row, error: rowErr } = await supabase
-    .from('document_files')
-    .select('id, document_id, path')
-    .eq('id', fileId)
-    .eq('document_id', documentId)
-    .maybeSingle()
-
-  if (rowErr || !row?.path) return json({ error: 'File not found' }, 404)
-
-  // 署名URLは admin で発行
-  const admin = createSupabaseAdmin()
-  const { data: signed, error: signErr } = await admin.storage
-    .from('documents')
-    .createSignedUrl(row.path, 60)
-
-  if (signErr || !signed?.signedUrl) return json({ error: 'File not found' }, 404)
-
-  // redirect（cookie/no-storeも付与）
-  const res = NextResponse.redirect(signed.signedUrl, 302)
+function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
+  const res = NextResponse.json(body, init)
   for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
   res.headers.set('Cache-Control', 'no-store')
   return res
+}
+
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  const { supabase, cookiesToSet } = createSupabase(req)
+
+  const params = 'then' in (ctx.params as any) ? await (ctx.params as any) : (ctx.params as any)
+  const documentId = String(params?.id ?? '')
+  const fileId = String(params?.fileId ?? '')
+
+  if (!UUID_RE.test(documentId)) return respondJson(cookiesToSet, { error: 'Invalid document id' }, { status: 400 })
+  if (!UUID_RE.test(fileId)) return respondJson(cookiesToSet, { error: 'Invalid file id' }, { status: 400 })
+
+  // auth
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) {
+    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  }
+
+  // doc → orgId確定（RLSで見えない場合も 404）
+  const { data: doc, error: docErr } = await supabase
+    .from('documents')
+    .select('id, org_id')
+    .eq('id', documentId)
+    .maybeSingle()
+
+  if (docErr) return respondJson(cookiesToSet, { error: docErr.message }, { status: 500 })
+  if (!doc) return respondJson(cookiesToSet, { error: 'document_not_found' }, { status: 404 })
+
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return respondJson(cookiesToSet, { error: 'org_id invalid' }, { status: 500 })
+
+  // file（doc+org で絞る）
+  const { data: row, error: fErr } = await supabase
+    .from('document_files')
+    .select('id, document_id, org_id, path')
+    .eq('id', fileId)
+    .eq('document_id', documentId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (fErr) return respondJson(cookiesToSet, { error: fErr.message }, { status: 500 })
+  if (!row) return respondJson(cookiesToSet, { error: 'file_not_found' }, { status: 404 })
+
+  const path = String((row as any).path ?? '')
+  if (!path) return respondJson(cookiesToSet, { error: 'file path missing' }, { status: 500 })
+
+  // ★重要：pdf/save は documents バケットに upload しているので download も documents 固定
+  const bucket = 'documents'
+
+  try {
+    const service = createServiceSupabase()
+    const { data, error } = await service.storage.from(bucket).createSignedUrl(path, 60)
+    if (error || !data?.signedUrl) {
+      return respondJson(cookiesToSet, { error: error?.message ?? 'createSignedUrl failed' }, { status: 500 })
+    }
+
+    const res = NextResponse.redirect(data.signedUrl, 302)
+    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+    res.headers.set('Cache-Control', 'no-store')
+    return res
+  } catch (e: any) {
+    return respondJson(cookiesToSet, { error: e?.message ?? 'download failed' }, { status: 500 })
+  }
 }

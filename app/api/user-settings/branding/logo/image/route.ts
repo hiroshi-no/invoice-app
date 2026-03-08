@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
+import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -48,11 +49,19 @@ export async function GET(req: NextRequest) {
   }
   const userId = userData.user.id
 
-  // user_settings（RLSで本人のみ）
+  // current org（profiles直読みは lib に集約）
+  let orgId: string
+  try {
+    orgId = await getCurrentOrgId(supabase as any, userId)
+  } catch (e: any) {
+    return withCookies(NextResponse.json({ error: e?.message ?? 'org not found' }, { status: 500 }))
+  }
+
+  // user_settings（org単位）
   const { data: settings, error: sErr } = await supabase
     .from('user_settings')
     .select('logo_path, logo_mime')
-    .eq('user_id', userId)
+    .eq('org_id', orgId)
     .maybeSingle()
 
   if (sErr) return withCookies(NextResponse.json({ error: sErr.message }, { status: 500 }))
@@ -79,7 +88,7 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       'Content-Type': mime,
-      // 変更が即反映されるように no-store（必要なら private,max-age=60 等にしてもOK）
+      // 変更が即反映されるように no-store（必要なら private,max-age=60 等に変更OK）
       'Cache-Control': 'no-store',
     },
   })

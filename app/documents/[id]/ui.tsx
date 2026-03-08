@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 const reportClientError = (label: string, detail?: any) => {
@@ -43,6 +43,26 @@ export default function DocumentActions({
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [finalizeStep, setFinalizeStep] = useState<'idle' | 'issuing' | 'saving'>('idle')
+
+  const isBusy = busy !== null || finalizeStep !== 'idle'
+  const busyRef = useRef(false)
+
+// ✅ 連打/多重実行を防ぐ共通ラッパー（refロックで確実に止める）
+const runOnce = async (name: string, fn: () => Promise<void>) => {
+  if (busyRef.current) return
+  if (isBusy) return
+
+  busyRef.current = true
+  setErr(null)
+  setOkMsg(null)
+  setBusy(name)
+  try {
+    await fn()
+  } finally {
+    setBusy(null)
+    busyRef.current = false
+  }
+}
 
 const formatJst = (iso: string) => {
   const d = new Date(iso)
@@ -93,13 +113,21 @@ const copyText = async (text: string) => {
   }
 }
 
-// ✅ コピー成功メッセージ（簡易トースト）
+// ✅ コピー成功メッセージ（トースト）
 const [copyMsg, setCopyMsg] = useState<string | null>(null)
-const showCopied = (msg: string) => {
-  setCopyMsg(msg)
-  window.setTimeout(() => setCopyMsg(null), 1600)
-}
+const copyTimerRef = useRef<number | null>(null)
 
+const showCopied = (msg: string) => {
+  if (copyTimerRef.current != null) {
+    window.clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = null
+  }
+  setCopyMsg(msg)
+  copyTimerRef.current = window.setTimeout(() => {
+    setCopyMsg(null)
+    copyTimerRef.current = null
+  }, 1600)
+}
 
 const fromNow = (iso: string) => {
   const t = new Date(iso).getTime()
@@ -286,51 +314,49 @@ const disableFinalize = !!busy || dirtyItems
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId])
 
- const issue = async () => {
-  setErr(null)
-  setOkMsg(null)
+const issue = async () => {
+  if (!isDraft) return
+  if (isBusy) return
 
-if (!ensureSavedOrWarn()) return
+  await runOnce('issue', async () => {
+    if (!ensureSavedOrWarn()) return
 
-const itemsHash = await getItemsHashOrFetch()
-if (!itemsHash) {
-  setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
-  return
-}
+    const itemsHash = await getItemsHashOrFetch()
+    if (!itemsHash) {
+      setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+      return
+    }
 
-  setBusy('issue')
-
-  try {
     const res = await fetch('/api/documents/' + documentId + '/issue', {
       method: 'POST',
       credentials: 'include',
       headers: {
-         'x-confirm-saved-items': '1',
-          'x-items-hash': itemsHash,
-        },
+        'x-confirm-saved-items': '1',
+        'x-items-hash': itemsHash,
+      },
+      cache: 'no-store',
     })
 
     const json = await res.json().catch(() => ({}))
 
-      if (!res.ok) {
-     logApiError('issue', res, json)
-     setErr(describeApiError('発行', res, json))
-     return
-   }
+    if (!res.ok) {
+      logApiError('issue', res, json)
+      setErr(describeApiError('発行', res, json))
+      return
+    }
 
     // ✅ 発行番号を表示
     const docNo = json?.document?.document_no ?? ''
     setIssuedNo(docNo || null)
     setOkMsg(docNo ? `発行しました：${docNo}` : '発行しました')
 
-    // ✅ ここが今回の本題：UIを issued 扱いに固定（refreshで戻らない）
+    // ✅ issued 扱いに固定
     setOptimisticStatus('issued')
 
     router.refresh()
-  } finally {
-    setBusy(null)
-  }
+  })
 }
+
 const openFile = (fileId: string, opts?: { target?: Window | null }) => {
   // ✅ ここは必ず helper 経由（/download 抜け防止）
   const url = getDownloadPath(fileId)
@@ -346,19 +372,10 @@ const openFile = (fileId: string, opts?: { target?: Window | null }) => {
 
 
 const savePdf = async () => {
-  setErr(null)
-  setOkMsg(null)
+  if (!canSavePdf) return
+  if (isBusy) return
 
-  if (!ensureSavedOrWarn()) return
-
-const itemsHash = await getItemsHashOrFetch()
-if (!itemsHash) {
-  setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
-  return
-}
-
-
-  // ✅ クリック直後に空タブを開く（ポップアップブロック回避）
+  // ✅ ポップアップは await 前に開く（ブロック回避）
   const popup = window.open('about:blank', '_blank')
   if (popup) {
     try {
@@ -367,51 +384,59 @@ if (!itemsHash) {
     } catch {}
   }
 
-  setBusy('savePdf')
+  await runOnce('savePdf', async () => {
+    try {
+      if (!ensureSavedOrWarn()) {
+        if (popup) popup.close()
+        return
+      }
 
-  try {
-    const res = await fetch('/api/documents/' + documentId + '/pdf/save', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'x-confirm-saved-items': '1',
-        'x-items-hash': itemsHash,
-      },
-    })
+      const itemsHash = await getItemsHashOrFetch()
+      if (!itemsHash) {
+        setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+        if (popup) popup.close()
+        return
+      }
 
-    const json = await res.json().catch(() => ({}))
+      const res = await fetch('/api/documents/' + documentId + '/pdf/save', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'x-confirm-saved-items': '1',
+          'x-items-hash': itemsHash,
+        },
+        cache: 'no-store',
+      })
 
-   if (!res.ok) {
-     logApiError('pdf/save', res, json)
-     setErr(describeApiError('PDF保存', res, json))
-     if (popup) popup.close()
-     return
-   }
+      const json = await res.json().catch(() => ({}))
 
+      if (!res.ok) {
+        logApiError('pdf/save', res, json)
+        setErr(describeApiError('PDF保存', res, json))
+        if (popup) popup.close()
+        return
+      }
 
-    // ✅ 履歴更新
-    await loadFiles({ silent: true })
-    router.refresh()
+      // ✅ 履歴更新
+      await loadFiles({ silent: true })
+      router.refresh()
 
-    setOkMsg('PDFを保存しました（履歴に追加しました）')
+      setOkMsg('PDFを保存しました（履歴に追加しました）')
 
-    // ✅ pdf/save の返却から fileId を取る（あなたのAPIは json.file.id の形）
-    const newFileId =
-      (json?.file?.id as string | undefined) ??
-      (json?.pdf?.file?.id as string | undefined)
+      const newFileId =
+        (json?.file?.id as string | undefined) ??
+        (json?.pdf?.file?.id as string | undefined)
 
-    if (newFileId) {
-      // ✅ ここだけで開く（=二重遷移しない）
-      openFile(newFileId, { target: popup })
-    } else {
+      if (newFileId) {
+        openFile(newFileId, { target: popup })
+      } else {
+        if (popup) popup.close()
+      }
+    } catch (e: any) {
+      setErr('Network/JS error: ' + (e?.message ?? String(e)))
       if (popup) popup.close()
     }
-  } catch (e: any) {
-    setErr('Network/JS error: ' + (e?.message ?? String(e)))
-    if (popup) popup.close()
-  } finally {
-    setBusy(null)
-  }
+  })
 }
 
 
@@ -498,69 +523,147 @@ const getItemsHashOrFetch = async () => {
 }
 
 
+function friendlyFinalizeError(status: number, body: any) {
+  // ✅ 最優先：サーバが整形して返した message
+  const msg = String(body?.message ?? '').trim()
+  if (msg) return msg
+
+  // フォールバック：error / detail.error などを見る（古いレスポンス互換）
+  const err = String(body?.error ?? '').trim()
+
+  const detail = body?.detail ?? body
+  const detailError = String(detail?.error ?? '').trim()
+
+  const itemsNotSaved =
+    err === 'items_not_saved' ||
+    detailError === 'items_not_saved' ||
+    String(detail?.message ?? '').includes('未保存')
+
+  if (status === 401) return 'ログインが切れました。再ログインしてください。'
+  if (status === 428) return '明細の保存状態を確認できません。編集画面で保存してから再実行してください。'
+  if (status === 409 && itemsNotSaved) return '明細が未保存です。編集画面で「保存」してから再実行してください。'
+  if (status === 409) return err || '競合が発生しました。画面を更新して再実行してください。'
+  if (status >= 500) return 'サーバーエラーが発生しました。時間をおいて再実行してください。'
+
+  return err || `エラーが発生しました (HTTP ${status})`
+}
+
+function setPopupMessage(popup: Window | null, html: string) {
+  if (!popup) return
+  try {
+    popup.document.body.innerHTML = html
+  } catch {}
+}
+
+// --- toast helpers（OK/ERRを統一して自動クリア） ---
+const toastTimerRef = useRef<number | null>(null)
+
+function clearToastTimer() {
+  if (toastTimerRef.current != null) {
+    window.clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = null
+  }
+}
+
+function pushOk(message: string, ms = 4000) {
+  clearToastTimer()
+  setErr(null)
+  setOkMsg(message)
+  toastTimerRef.current = window.setTimeout(() => setOkMsg(null), ms)
+}
+
+function pushErr(message: string, ms = 8000) {
+  clearToastTimer()
+  setOkMsg(null)
+  setErr(message)
+  toastTimerRef.current = window.setTimeout(() => setErr(null), ms)
+}
+
+// runOnce開始前に呼ぶ（前回の通知を消す）
+function resetNotice() {
+  clearToastTimer()
+  setErr(null)
+  setOkMsg(null)
+}
 
 const finalize = async () => {
   if (!isDraft) return
+  if (isBusy) return
+  resetNotice()
 
-  setErr(null)
-  setOkMsg(null)
+  await runOnce('finalize', async () => {
+    // ✅ クリック直後に空タブを開く（await より前！）
+    const popup = window.open('about:blank', '_blank')
+    if (popup) {
+      try {
+        popup.document.title = 'Issuing...'
+        popup.document.body.innerHTML =
+          '<p style="font-family:sans-serif;">発行＆PDF保存を実行しています…</p>'
+      } catch {}
+    }
 
-  // 未保存ガード（localStorage dirty）
-  if (!ensureSavedOrWarn()) return
-
-  // x-items-hash 必須
- // const itemsHash = getItemsHashOrWarn()
-//  if (!itemsHash) return
-
-// 新
-const itemsHash = await getItemsHashOrFetch()
-if (!itemsHash) {
-  setErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
-  return
-}
-
-  setBusy('finalize')
-  setFinalizeStep('issuing')
-
-  // ✅ クリック直後に空タブを開く（ポップアップブロック回避）
-  const popup = window.open('about:blank', '_blank')
-  if (popup) {
     try {
-      popup.document.title = 'Issuing...'
-      popup.document.body.innerHTML =
-        '<p style="font-family:sans-serif;">発行＆PDF保存を実行しています…</p>'
-    } catch {}
-  }
+      // 未保存ガード（localStorage dirty）
+      if (!ensureSavedOrWarn()) {
+        if (popup) popup.close()
+        return
+      }
 
-  try {
-    const res = await fetch('/api/documents/' + documentId + '/finalize', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'x-confirm-saved-items': '1',
-        'x-items-hash': itemsHash,
-      },
-      cache: 'no-store',
-    })
+      // x-items-hash 必須（最新を取りに行く）
+      const itemsHash = await getItemsHashOrFetch()
+      if (!itemsHash) {
+        pushErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+        if (popup) popup.close()
+        return
+      }
 
-const text = await res.clone().text().catch(() => '')
-let json: any = {}
-try {
-  json = text ? JSON.parse(text) : {}
-} catch {
-  json = { raw: text }
-}
+      setFinalizeStep('issuing')
 
-if (!res.ok) {
+      const res = await fetch('/api/documents/' + documentId + '/finalize', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'x-confirm-saved-items': '1',
+          'x-items-hash': itemsHash,
+        },
+        cache: 'no-store',
+      })
+
+      const text = await res.clone().text().catch(() => '')
+      let json: any = {}
+      try {
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        json = { raw: text }
+      }
+
+      if (!res.ok) {
   reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
   logApiError('finalize', res, json)
-  setErr(describeApiError('発行＋PDF保存', res, json))
-  if (popup) popup.close()
+
+  const friendly = friendlyFinalizeError(res.status, json)
+  pushErr(friendly)
+
+  setPopupMessage(
+    popup,
+    `
+    <div style="font-family:sans-serif;max-width:720px;margin:20px auto;line-height:1.6">
+      <h2 style="margin:0 0 12px">発行に失敗しました</h2>
+      <p style="color:#b00020;margin:0 0 12px">${friendly}</p>
+      <p style="margin:0 0 8px">対処：</p>
+      <ul style="margin:0 0 12px;padding-left:18px">
+        <li>明細を編集した場合は、編集画面で「保存」してから再実行</li>
+        <li>画面更新後に再実行（競合の可能性）</li>
+        <li>ログイン切れの場合は再ログイン</li>
+      </ul>
+      <p style="margin:0"><a href="${location.href}" target="_self">このドキュメント画面に戻る</a></p>
+    </div>
+    `
+  )
   return
 }
 
       // ✅ finalize は { ok, issue, pdf } を返す想定
-      // 1) 発行番号を拾う（issue の中）
       const issuedDocNo =
         (json?.issue?.document?.document_no as string | undefined) ??
         (json?.issue?.document_no as string | undefined) ??
@@ -569,58 +672,106 @@ if (!res.ok) {
 
       if (issuedDocNo) {
         setIssuedNo(issuedDocNo)
-        setOkMsg(`発行＋PDF保存しました：${issuedDocNo}`)
+        pushOk(`発行＋PDF保存しました：${issuedDocNo}`)
       } else {
-        setOkMsg('発行＋PDF保存しました')
+        pushOk('発行＋PDF保存しました')
       }
 
-      // ✅ 画面を issued 扱いに（refreshで戻らないように）
       setOptimisticStatus('issued')
+      // saving（履歴更新→PDFを開くフェーズ）に移す
+      setFinalizeStep('saving')
+      setPopupMessage(popup, '<p style="font-family:sans-serif;">PDF履歴を更新しています…</p>')
 
       // 履歴更新（静かに）
       await loadFiles({ silent: true })
       router.refresh()
 
-      setFinalizeStep('saving')
-
-      // 2) pdf/save の戻りから fileId を拾う（pdf.file.id）
       const newFileId =
         (json?.pdf?.file?.id as string | undefined) ??
         (json?.file?.id as string | undefined) ??
         null
 
+     // popup がブロックされた場合は自動で開かず、履歴から開いてもらう
+     if (!popup) {
+       pushOk('発行＋PDF保存しました。PDF履歴から開けます。')
+       return
+     }
+
       if (newFileId) {
+        setPopupMessage(popup, '<p style="font-family:sans-serif;">PDFを開きます…</p>')
         openFile(newFileId, { target: popup })
         return
       }
 
-    // 3) fallback：pdf-files で最新1件を開く
-    const res2 = await fetch('/api/documents/' + documentId + '/pdf-files', {
-      credentials: 'include',
-      cache: 'no-store',
-    })
-    const json2 = await res2.json().catch(() => ({}))
-    const firstId = res2.ok ? (json2?.files?.[0]?.id as string | undefined) : undefined
+      // fallback：pdf-files で最新1件を開く
+      const res2 = await fetch('/api/documents/' + documentId + '/pdf-files', {
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      const json2 = await res2.json().catch(() => ({}))
+      const firstId = res2.ok ? (json2?.files?.[0]?.id as string | undefined) : undefined
 
-    if (firstId) {
-      openFile(firstId, { target: popup })
-    } else {
-      if (popup) popup.close()
+      if (firstId) {
+        setPopupMessage(popup, '<p style="font-family:sans-serif;">PDFを開きます…</p>')
+        openFile(firstId, { target: popup })
+      } else {
+        if (popup) popup.close()
+      }
+    } catch (e: any) {
+      pushErr('Network/JS error: ' + (e?.message ?? String(e)))
+      // 失敗時は popup を閉じる
+      // （成功時は openFile が使うので閉じない）
+      // ※popupがブロックされてる場合は null
+      // eslint-disable-next-line no-empty
+      try {
+        // popup は scope 内
+      } catch {}
+    } finally {
+      setFinalizeStep('idle')
+      // busy は runOnce が finally で必ず解除するのでここでは触らない
     }
-  } catch (e: any) {
-    setErr('Network/JS error: ' + (e?.message ?? String(e)))
-    if (popup) popup.close()
-  } finally {
-    setFinalizeStep('idle')
-    setBusy(null)
-  }
+  })
 }
 
+const actionBusy = !!busy || isBusy || finalizeStep !== 'idle'
+const blockedByDirty = !!dirtyItems
 
+const previewDisabled = !!busy || blockedByDirty
+const refreshDisabled = actionBusy
+const finalizeDisabled = disableFinalize || actionBusy || blockedByDirty
+const issueDisabled = actionBusy || blockedByDirty
+const savePdfDisabled = actionBusy || blockedByDirty
+const duplicateDisabled = actionBusy
+
+// ✅ ここに追加（return の直前）
+const busyLabel =
+  busy === 'finalize'
+    ? finalizeStep === 'issuing'
+      ? '発行中…'
+      : finalizeStep === 'saving'
+        ? 'PDF保存中…'
+        : '処理中…'
+    : busy === 'issue'
+      ? '発行中…'
+      : busy === 'savePdf'
+        ? 'PDF生成中…'
+        : busy === 'duplicate'
+          ? '複製中…'
+          : busy
+            ? `処理中… (${busy})`
+            : ''
 
 return (
+
   <div>
     <h2>Actions</h2>
+
+   {busyLabel && (
+     <p style={{ margin: '6px 0 10px', color: '#6b7280', fontSize: 13 }}>
+       実行中：<b>{busyLabel}</b>
+     </p>
+   )}
+
 
     {dirtyItems && (
       <p style={{ color: '#b45309', marginTop: 0 }}>
@@ -628,57 +779,70 @@ return (
       </p>
     )}
 
+{finalizeStep !== 'idle' && (
+  <div
+    style={{
+      margin: '12px 0',
+      padding: '10px 12px',
+      border: '1px solid #e5e7eb',
+      borderRadius: 10,
+      background: '#fafafa',
+      color: '#374151',
+    }}
+  >
+    {finalizeStep === 'issuing' && '発行しています…'}
+    {finalizeStep === 'saving' && 'PDFを保存しています…'}
+  </div>
+)}
+
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+
       <button
-        type="button"
-        onClick={() => {
-          setErr(null)
-          if (!ensureSavedOrWarn()) return
-          window.open('/api/documents/' + documentId + '/pdf', '_blank')
-        }}
-        disabled={!!busy || dirtyItems}
-        style={btn}
-      >
-        PDFプレビュー
-      </button>
+  type="button"
+  onClick={() => {
+    setErr(null)
+    if (!ensureSavedOrWarn()) return
+    window.open('/api/documents/' + documentId + '/pdf', '_blank')
+  }}
+  disabled={previewDisabled}
+  style={btnStyle(previewDisabled)}
+>
+  PDFプレビュー
+</button>
 
-      <button type="button" onClick={() => loadFiles()} disabled={!!busy} style={btn}>
-        履歴更新
-      </button>
+<button type="button" onClick={() => loadFiles()} disabled={refreshDisabled} style={btnStyle(refreshDisabled)}>
+  履歴更新
+</button>
 
-      {/* draft の時だけ */}
-      {isDraft && (
-        <>
-          <button type="button" onClick={finalize} disabled={disableFinalize} style={btn}>
-            {dirtyItems
-              ? '未保存のため発行不可'
-              : busy === 'finalize'
-                ? finalizeStep === 'issuing'
-                  ? '発行中…'
-                  : 'PDF生成中…'
-                : '発行＋PDF保存（開く）'}
-          </button>
+{isDraft && (
+  <>
+    <button type="button" onClick={finalize} disabled={finalizeDisabled} style={btnStyle(finalizeDisabled)}>
+      {blockedByDirty
+        ? '未保存のため発行不可'
+        : busy === 'finalize'
+          ? finalizeStep === 'issuing'
+            ? '発行中…'
+            : 'PDF生成中…'
+          : '発行＋PDF保存（開く）'}
+    </button>
 
-          <button type="button" onClick={issue} disabled={disableFinalize} style={btn}>
-            {dirtyItems ? '未保存のため不可' : busy === 'issue' ? '発行中…' : '発行（番号確定）'}
-          </button>
-        </>
-      )}
+    <button type="button" onClick={issue} disabled={issueDisabled} style={btnStyle(issueDisabled)}>
+      {blockedByDirty ? '未保存のため不可' : busy === 'issue' ? '発行中…' : '発行（番号確定）'}
+    </button>
+  </>
+)}
 
-      {/* ✅ draft/issued どちらでも出す（Issue後に消えない） */}
-      {canSavePdf && (
-        <button type="button" onClick={savePdf} disabled={!!busy || dirtyItems} style={btn}>
-          {dirtyItems ? '未保存のため不可' : busy === 'savePdf' ? 'PDF生成中…' : 'PDF保存（履歴作成）'}
-        </button>
-      )}
+{canSavePdf && (
+  <button type="button" onClick={savePdf} disabled={savePdfDisabled} style={btnStyle(savePdfDisabled)}>
+    {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF生成中…' : 'PDF保存（履歴作成）'}
+  </button>
+)}
 
-      {/* issued の時だけ */}
-      {!isDraft && (
-        <button type="button" onClick={duplicateToEdit} disabled={!!busy} style={btn}>
-          {busy === 'duplicate' ? '複製中…' : '複製して編集（下書き作成）'}
-        </button>
-      )}
-
+{!isDraft && (
+  <button type="button" onClick={duplicateToEdit} disabled={duplicateDisabled} style={btnStyle(duplicateDisabled)}>
+    {busy === 'duplicate' ? '複製中…' : '複製して編集（下書き作成）'}
+  </button>
+)}
     </div> {/* ✅ ← これが抜けてた */}
 
     {!isDraft && (
@@ -687,10 +851,118 @@ return (
       </p>
     )}
 
-    {err && <p style={{ color: 'crimson', whiteSpace: 'pre-wrap' }}>{err}</p>}
-    {okMsg && <p style={{ color: 'green' }}>{okMsg}</p>}
-    {copyMsg && <p style={{ color: '#0f766e' }}>{copyMsg}</p>}
-   {documentNoShown && (
+{/* Toasts (top-right) */}
+<div
+  style={{
+    position: 'fixed',
+    top: 16,
+    right: 16,
+    zIndex: 9999,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    maxWidth: 420,
+  }}
+>
+  {err && (
+    <div
+      style={{
+        border: '1px solid #fecaca',
+        background: '#fff1f2',
+        color: '#991b1b',
+        borderRadius: 10,
+        padding: '10px 12px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontWeight: 700 }}>エラー</div>
+        <button
+          onClick={() => setErr(null)}
+          aria-label="close error"
+          style={{
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            color: '#991b1b',
+            fontSize: 16,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <div style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}>{err}</div>
+    </div>
+  )}
+
+  {okMsg && (
+    <div
+      style={{
+        border: '1px solid #bbf7d0',
+        background: '#f0fdf4',
+        color: '#166534',
+        borderRadius: 10,
+        padding: '10px 12px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontWeight: 700 }}>完了</div>
+        <button
+          onClick={() => setOkMsg(null)}
+          aria-label="close ok"
+          style={{
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            color: '#166534',
+            fontSize: 16,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <div style={{ marginTop: 6 }}>{okMsg}</div>
+    </div>
+  )}
+
+  {copyMsg && (
+    <div
+      style={{
+        border: '1px solid #99f6e4',
+        background: '#f0fdfa',
+        color: '#0f766e',
+        borderRadius: 10,
+        padding: '10px 12px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontWeight: 700 }}>コピー</div>
+        <button
+          onClick={() => setCopyMsg(null)}
+          aria-label="close copy"
+          style={{
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            color: '#0f766e',
+            fontSize: 16,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+      <div style={{ marginTop: 6 }}>{copyMsg}</div>
+    </div>
+  )}
+</div>
+
+{/* 発行番号はトーストではなく本文で表示（必要なら残す） */}
+{documentNoShown && (
   <p style={{ color: '#555' }}>
     発行番号: <b>{documentNoShown}</b>
   </p>
@@ -780,7 +1052,24 @@ return (
 )
 } // ✅ これが必要（DocumentActions を閉じる）
 
-const btn = { padding: '8px 12px', border: '1px solid #ccc', borderRadius: 6, background: '#fff' } as const
+const btnBase: React.CSSProperties = {
+  padding: '8px 12px',
+  borderRadius: 10,
+  border: '1px solid #ddd',
+  background: '#fff',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+}
+
+function btnStyle(disabled: boolean): React.CSSProperties {
+  if (!disabled) return btnBase
+  return {
+    ...btnBase,
+    opacity: 0.55,
+    cursor: 'not-allowed',
+    pointerEvents: 'none', // hover/clickを完全に無効
+  }
+}
 const btnSmall = { padding: '6px 10px', border: '1px solid #ccc', borderRadius: 6, background: '#fff' } as const
 const th = { textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 } as const
 const td = { borderBottom: '1px solid #eee', padding: 8, verticalAlign: 'top' } as const

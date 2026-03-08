@@ -9,6 +9,9 @@ export const dynamic = 'force-dynamic'
 
 type Props = { params: Promise<{ id: string }> | { id: string } }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 // cookies() が同期/非同期どっちでも安全に扱う
 async function getCookieStore() {
   const c: any = cookies()
@@ -35,18 +38,16 @@ async function createSupabase() {
 
 export default async function DocumentEditPage({ params }: Props) {
   const p = 'then' in params ? await params : params
-  const documentId = p.id
+  const documentId = String((p as any).id ?? '')
 
-  const uuidRe =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  if (!uuidRe.test(documentId)) {
+  if (!UUID_RE.test(documentId)) {
     return <div style={{ padding: 40 }}>Invalid document id: {documentId}</div>
   }
 
   const supabase = await createSupabase()
 
-  const { data: userData } = await supabase.auth.getUser()
-  if (!userData.user) {
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
         <h1>Edit</h1>
@@ -57,38 +58,45 @@ export default async function DocumentEditPage({ params }: Props) {
     )
   }
 
-  const { data: docs, error: docErr } = await supabase
+  // ✅ documents: org_id を取得して確定（RLSで見えなければ404）
+  const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, status, currency, document_no, customer_id, title, notes, due_date')
+    .select('id, org_id, status, currency, document_no, customer_id, title, notes, due_date')
     .eq('id', documentId)
-    .limit(1)
+    .maybeSingle()
 
   if (docErr) return <div style={{ padding: 40 }}>Error: {docErr.message}</div>
-  const doc = docs?.[0]
   if (!doc) return <div style={{ padding: 40 }}>Not found</div>
 
-  if (doc.status !== 'draft') {
+  const orgId = String((doc as any).org_id ?? '')
+  if (!UUID_RE.test(orgId)) return <div style={{ padding: 40 }}>Error: Document org_id not found</div>
+
+  if ((doc as any).status !== 'draft') {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
         <h1>Edit</h1>
-        <p style={{ color: 'crimson' }}>このドキュメントは {doc.status} のため編集できません。</p>
+        <p style={{ color: 'crimson' }}>このドキュメントは {(doc as any).status} のため編集できません。</p>
         <Link href={`/documents/${documentId}`}>Back</Link>
       </div>
     )
   }
 
+  // ✅ customers: org で絞る
   const { data: customers, error: custErr } = await supabase
     .from('customers')
     .select('id, name')
+    .eq('org_id', orgId)
     .order('name', { ascending: true })
     .limit(300)
 
   if (custErr) return <div style={{ padding: 40 }}>Customers load error: {custErr.message}</div>
 
+  // ✅ items: org で絞る
   const { data: items, error: itemsErr } = await supabase
     .from('document_items')
     .select('id, position, description, quantity, unit_price_amount')
     .eq('document_id', documentId)
+    .eq('org_id', orgId)
     .order('position', { ascending: true })
 
   if (itemsErr) return <div style={{ padding: 40 }}>Error: {itemsErr.message}</div>
@@ -103,7 +111,7 @@ export default async function DocumentEditPage({ params }: Props) {
       </div>
 
       <p style={{ color: '#666' }}>
-        Doc: {doc.document_no ?? doc.id} / Currency: {doc.currency ?? 'JPY'}
+        Doc: {(doc as any).document_no ?? (doc as any).id} / Currency: {(doc as any).currency ?? 'JPY'}
       </p>
 
       {/* ✅ documents（メタ情報）更新フォーム：customers を渡す */}
@@ -111,10 +119,10 @@ export default async function DocumentEditPage({ params }: Props) {
         documentId={documentId}
         customers={(customers ?? []) as Array<{ id: string; name: string }>}
         initial={{
-          customer_id: doc.customer_id ?? null,
-          title: doc.title ?? '',
-          notes: doc.notes ?? '',
-          due_date: doc.due_date ?? null,
+          customer_id: (doc as any).customer_id ?? null,
+          title: (doc as any).title ?? '',
+          notes: (doc as any).notes ?? '',
+          due_date: (doc as any).due_date ?? null,
         }}
       />
 

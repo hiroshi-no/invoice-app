@@ -54,26 +54,25 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
   const userId = userData.user.id
 
-  // source document（RLSで見えない場合は 404）
-  const { data: src, error: srcErr } = await supabase
-    .from('documents')
-    .select('id, doc_type, due_date, customer_id, currency, title, notes')
-    .eq('id', sourceId)
-    .single()
+const { data: src, error: srcErr } = await supabase
+  .from('documents')
+  .select('id, org_id, doc_type, due_date, customer_id, currency, title, notes')
+  .eq('id', sourceId)
+  .maybeSingle()
 
-  if (srcErr) {
-    // single() は 0件だと error になるので、404扱いに寄せる
-    const msg = srcErr.message ?? 'Source document not found'
-    const status = msg.toLowerCase().includes('0 rows') ? 404 : 500
-    return respond({ error: msg }, status)
-  }
+if (srcErr) return respond({ error: srcErr.message }, 500)
+if (!src) return respond({ error: 'Source document not found' }, 404)
+if (!src.org_id) return respond({ error: 'Source document org_id not found' }, 500)
+
+const orgId = src.org_id as string
 
   // source items
-  const { data: srcItems, error: itemsErr } = await supabase
-    .from('document_items')
-    .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
-    .eq('document_id', sourceId)
-    .order('position', { ascending: true })
+const { data: srcItems, error: itemsErr } = await supabase
+  .from('document_items')
+  .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
+  .eq('document_id', sourceId)
+  .eq('org_id', orgId) // ✅ src.org_id ではなく orgId
+  .order('position', { ascending: true })
 
   if (itemsErr) return respond({ error: itemsErr.message }, 500)
 
@@ -93,54 +92,50 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const tax_amount = Number(t?.tax_amount ?? t?.tax ?? 0)
   const total_amount = Number(t?.total_amount ?? t?.total ?? subtotal_amount + tax_amount)
 
-  const newDocPayload: any = {
-    doc_type: src.doc_type,
-    status: 'draft',
+// 新規ドキュメント作成時に org_id を追加
+const newDocPayload: any = {
+  org_id: orgId, // ✅ src.org_id ではなく orgId
+  doc_type: src.doc_type,
+  status: 'draft',
+  document_no: null,
+  issue_year: null,
+  issued_at: null,
+  due_date: src.due_date ?? null,
+  customer_id: src.customer_id ?? null,
+  currency: src.currency ?? 'JPY',
+  title: src.title ?? null,
+  notes: src.notes ?? null,
+  subtotal_amount,
+  tax_amount,
+  total_amount,
+  created_by: userId,
+}
 
-    document_no: null,
-    issue_year: null,
-    issued_at: null,
+// 新しい document の作成
+const { data: newDoc, error: insErr } = await supabase
+  .from('documents')
+  .insert(newDocPayload)
+  .select('id')
+  .single()
 
-    due_date: src.due_date ?? null,
-    customer_id: src.customer_id ?? null,
-    currency: src.currency ?? 'JPY',
-    title: src.title ?? null,
-    notes: src.notes ?? null,
+if (insErr) return respond({ error: insErr.message }, 500)
+if (!newDoc?.id) return respond({ error: 'Failed to create draft' }, 500)
 
-    subtotal_amount,
-    tax_amount,
-    total_amount,
-
-    // ✅ 個人専用：RLSに合わせて created_by を入れる
-    created_by: userId,
-  }
-
-  // insert（select('*') をやめて最小限の返却に）
-  const { data: newDoc, error: insErr } = await supabase
-    .from('documents')
-    .insert(newDocPayload)
-    .select('id')
-    .single()
-
-  if (insErr) return respond({ error: insErr.message }, 500)
-  if (!newDoc?.id) return respond({ error: 'Failed to create draft' }, 500)
-
-  // copy items（positionを維持）
-  const itemsToInsert = (srcItems ?? []).map((it: any, idx: number) => ({
-    document_id: newDoc.id,
-    position: it.position ?? idx + 1,
-    description: it.description ?? null,
-    quantity: it.quantity ?? 0,
-    unit_price_amount: it.unit_price_amount ?? 0,
-    line_subtotal_amount: it.line_subtotal_amount ?? null,
-    // created_by 列が document_items に存在して NOT NULL の場合だけ追加
-    // created_by: userId,
-  }))
-
-  if (itemsToInsert.length > 0) {
-    const { error: insItemsErr } = await supabase.from('document_items').insert(itemsToInsert)
-    if (insItemsErr) return respond({ error: insItemsErr.message }, 500)
-  }
+// アイテムのコピー
+const itemsToInsert = (srcItems ?? []).map((it: any, idx: number) => ({
+  org_id: orgId, // ✅ src.org_id ではなく orgId
+  document_id: newDoc.id,
+  position: it.position ?? idx + 1,
+  description: it.description ?? null,
+  quantity: it.quantity ?? 0,
+  unit_price_amount: it.unit_price_amount ?? 0,
+  // DBトリガー計算に統一するなら送らない
+  // line_subtotal_amount: it.line_subtotal_amount ?? null,
+}))
+if (itemsToInsert.length > 0) {
+  const { error: insItemsErr } = await supabase.from('document_items').insert(itemsToInsert)
+  if (insItemsErr) return respond({ error: insItemsErr.message }, 500)
+}
 
   // UIが取り回ししやすい返却（idだけで十分）
   return respond({ ok: true, id: newDoc.id }, 200)

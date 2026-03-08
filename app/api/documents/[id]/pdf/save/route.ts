@@ -7,11 +7,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { calcTotals } from '@/lib/calc'
 
-import { loadUserBranding } from '@/lib/pdf/branding'
+import { loadOrgBranding } from '@/lib/pdf/branding'
 import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
-
 import { computeItemsHashFromDbRows, type DbItemRowForHash } from '@/lib/itemsHash'
+import { enforceRateLimit } from '@/lib/rateLimit'
+import { Buffer } from 'node:buffer'
 
 function createSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -68,41 +69,55 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return respond({ error: 'Invalid document id' }, { status: 400 })
   }
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
-  }
-  const userId = userData.user.id
+const { data: userData, error: userErr } = await supabase.auth.getUser()
+if (userErr || !userData.user) {
+  return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+}
+const userId = userData.user.id
 
-  // 409ガード（未保存防止）
+  const isInternal = req.headers.get('x-internal-call') === '1'
+    // ✅ ここに置く（テスト用ログ）
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[pdf/save] called. internal=', isInternal)
+    }
+  if (!isInternal) {
+    const limited = await enforceRateLimit(supabase, 'pdf_save', 10, 60)
+    if (limited) return limited
+  }
+
+  // 409/428 ガード（未保存防止）
   const clientHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
   if (!clientHash) {
     return respond({ error: 'Precondition required: x-items-hash' }, { status: 428 })
   }
 
-  // documents（RLSで見えない＝404に寄せる）
-  const { data: doc, error: docErr } = await supabase
-    .from('documents')
-    .select('id, customer_id, status, currency, document_no, issued_at')
-    .eq('id', documentId)
-    .single()
+// documents（RLSで見えない＝404に寄せる）
+const { data: doc, error: docErr } = await supabase
+  .from('documents')
+  .select('id, org_id, customer_id, status, currency, document_no, issued_at') // ✅ org_id を追加
+  .eq('id', documentId)
+  .maybeSingle()
 
-  if (docErr) {
-    if ((docErr as any).code === 'PGRST116') return respond({ error: 'Document not found' }, { status: 404 })
-    return respond({ error: docErr.message }, { status: 500 })
-  }
-  if (!doc) return respond({ error: 'Document not found' }, { status: 404 })
+if (docErr) return respond({ error: docErr.message }, { status: 500 })
+if (!doc) return respond({ error: 'Document not found' }, { status: 404 })
 
-  // draft / issued のみ許可（必要に応じて調整）
-  if (doc.status !== 'draft' && doc.status !== 'issued') {
-    return respond({ error: 'invalid document status' }, { status: 409 })
-  }
+// ✅ org_id 必須（document_files insert に使う）
+    if (!doc.org_id) {
+      return respond({ error: 'Document org_id not found' }, { status: 500 })
+    }
+    const orgId = doc.org_id as string
+
+// draft / issued のみ許可（必要に応じて調整）
+if (doc.status !== 'draft' && doc.status !== 'issued') {
+  return respond({ error: 'invalid document status' }, { status: 409 })
+}
 
   // items（このあと rows と hash に使い回す）
 const { data: items, error: itemsErr } = await supabase
   .from('document_items')
   .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
   .eq('document_id', documentId)
+  .eq('org_id', orgId) // ✅ 追加
   .order('position', { ascending: true })
   .order('id', { ascending: true })
 
@@ -117,6 +132,20 @@ const rowsForHash = (items ?? []).map((it: any) => ({
 }))
 
 const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toLowerCase()
+
+// ✅ 未保存ガード（x-items-hash）
+if (clientHash !== dbHash) {
+  return respond(
+    {
+      error: 'items_not_saved',
+      message: '明細が未保存（またはDBと不一致）のため保存できません。編集画面で保存してから再実行してください。',
+      expected: dbHash, // 本番は消してOK
+      got: clientHash,  // 本番は消してOK
+    },
+    { status: 409 }
+  )
+}
+
   // customer（無くてもPDF作る）
   let customerName = ''
   if (doc.customer_id) {
@@ -124,6 +153,7 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
       .from('customers')
       .select('name')
       .eq('id', doc.customer_id)
+      .eq('org_id', orgId) // ✅ 追加
       .maybeSingle()
 
     if (!cErr) customerName = String((customer as any)?.name ?? '')
@@ -142,8 +172,8 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
   const currency = String(doc.currency ?? 'JPY')
   const totals = calcTotals(subtotal, currency)
 
-  // branding（個人専用 user_settings → service role download は lib 側）
-  const branding = await loadUserBranding(supabase as any, userId)
+   // ✅ branding（org共通）
+   const branding = await loadOrgBranding(supabase as any, orgId)
 
   const html = buildInvoiceHtml({
     title: 'INVOICE',
@@ -156,19 +186,23 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
     branding,
   })
 
-  // preview と同じ画像待機（共通レンダラ）
-  const pdf = await renderPdfFromHtml(html)
+// preview と同じ画像待機（共通レンダラ）
+const pdf = await renderPdfFromHtml(html)
+
+// ★追加：バイト長を確実に取る
+const pdfBuf = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf as any)
+const pdfSizeBytes = pdfBuf.length
 
   // 保存先（ファイル名は念のため安全化）
   const baseNo = String(doc.document_no ?? doc.id).trim()
   const safeNo = baseNo.replace(/[\\/:*?"<>|]/g, '_') // Windows禁則などを潰す
   const pdfFileName = `${safeNo}.pdf`
-  const storagePath = `${userId}/${documentId}/${Date.now()}_${pdfFileName}`
+  const storagePath = `${orgId}/${documentId}/${Date.now()}_${pdfFileName}`
 
   // ✅ Storageはadminでアップロード（RLSに左右されない）
   const admin = createSupabaseAdmin()
 
-  const { data: up, error: upErr } = await admin.storage.from('documents').upload(storagePath, pdf, {
+  const { data: up, error: upErr } = await admin.storage.from('documents').upload(storagePath, pdfBuf, {
     contentType: 'application/pdf',
     upsert: false,
   })
@@ -189,17 +223,18 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
     return respond({ error: 'Storage verify failed: ' + (signedErr?.message ?? 'no signedUrl') }, { status: 500 })
   }
 
-  // ✅ document_files に保存（ここはRLSで自分の行だけ入る想定）
-  const { data: saved, error: insErr } = await supabase
-    .from('document_files')
-    .insert({
-      document_id: documentId,
-      path: storagePath, // ←あなたのschemaは path
-      created_by: userId,
-    })
-    .select('id, created_at, path')
-    .single()
-
+// ✅ document_files に保存（ここはRLSで自分の行だけ入る想定）
+const { data: saved, error: insErr } = await supabase
+  .from('document_files')
+  .insert({
+    org_id: orgId,
+    document_id: documentId,
+    path: storagePath,
+    created_by: userId,
+  })
+  .select('id, created_at, path')
+  .single()
+  
   if (insErr || !saved?.id) {
     // insert失敗ならアップロード済みファイルを掃除（孤児防止）
     try {
@@ -213,6 +248,7 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
     .from('documents')
     .update({ subtotal_amount: totals.subtotal, tax_amount: totals.tax, total_amount: totals.total })
     .eq('id', documentId)
+    .eq('org_id', orgId) // ✅ 追加
 
   if (updErr) {
     return respond(
