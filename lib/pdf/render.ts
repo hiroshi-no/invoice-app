@@ -24,9 +24,21 @@ export async function renderPdfFromHtml(html: string) {
   // ✅ テンプレ方式：
   // - Vercel: /public/chromium-pack.tar を配信 → それをURLで参照
   // - もし明示したい場合だけ CHROMIUM_PACK_URL を使う
-  const packUrl =
-    process.env.CHROMIUM_PACK_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/chromium-pack.tar` : undefined)
+// ✅ テンプレ方式：/public/chromium-pack.tar を配信 → それをURLで参照
+const basePackUrl =
+  process.env.CHROMIUM_PACK_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/chromium-pack.tar` : undefined)
+
+// ✅ Deployment Protection の Automation bypass secret（Vercelが自動で入れる）
+const bypassSecret =
+  process.env.VERCEL_AUTOMATION_BYPASS_SECRET ||
+  process.env.CHROMIUM_PACK_BYPASS_SECRET // 念のため手動指定も可
+
+// ✅ chromium-min はヘッダーが付けられないので「クエリ」でバイパスする
+const packUrl =
+  bypassSecret && basePackUrl
+    ? `${basePackUrl}${basePackUrl.includes('?') ? '&' : '?'}x-vercel-protection-bypass=${encodeURIComponent(bypassSecret)}`
+    : basePackUrl
 
   // ローカル用（インストール済みChrome）
   const localChrome = process.env.CHROME_EXECUTABLE_PATH
