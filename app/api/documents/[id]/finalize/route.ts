@@ -5,6 +5,7 @@ export const maxDuration = 60
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { enforceRateLimit } from '@/lib/rateLimit'
+import { withDebug } from '@/lib/debug'
 
 type RouteContext =
   | { params: { id: string } }
@@ -56,21 +57,40 @@ function isItemsNotSaved(payload: any) {
   return payload?.error === 'items_not_saved' || d?.error === 'items_not_saved'
 }
 
-function sanitizeDebug(payload: any) {
-  // 本番では expected/got を返さない（デバッグ漏洩防止）
-  if (process.env.NODE_ENV !== 'production') return payload
+function sanitizeDebug<T>(obj: T): T {
+  // Production のみマスク。Preview/Local はデバッグ可能にする
+  const isProd = process.env.VERCEL_ENV === 'production'
+  if (!isProd) return obj
 
-  const clone = JSON.parse(JSON.stringify(payload ?? {}))
+  const DEBUG_KEYS = new Set(['raw', 'expected', 'got', 'detail', 'stack'])
 
-  const strip = (obj: any) => {
-    if (!obj || typeof obj !== 'object') return
-    delete obj.expected
-    delete obj.got
-    delete obj.raw
-    for (const k of Object.keys(obj)) strip(obj[k])
+  const strip = (v: any): any => {
+    if (Array.isArray(v)) {
+      const arr = v.map(strip).filter((x) => x !== undefined)
+      return arr
+    }
+    if (v && typeof v === 'object') {
+      const out: any = {}
+      for (const [k, val] of Object.entries(v)) {
+        if (DEBUG_KEYS.has(k)) continue
+        const cleaned = strip(val)
+
+        // cleaned が空オブジェクトなら落とす（例: { raw: "..."} しか無い場合）
+        if (cleaned && typeof cleaned === 'object' && !Array.isArray(cleaned) && Object.keys(cleaned).length === 0) {
+          continue
+        }
+
+        // undefined になった要素は落とす
+        if (cleaned === undefined) continue
+
+        out[k] = cleaned
+      }
+      return out
+    }
+    return v
   }
-  strip(clone)
-  return clone
+
+  return strip(obj) as T
 }
 
 function friendlyMessage(stage: 'issue' | 'pdf', status: number, detail: any) {
