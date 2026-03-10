@@ -14,6 +14,7 @@ import { renderPdfFromHtml } from '@/lib/pdf/render'
 import { computeItemsHashFromDbRows, type DbItemRowForHash } from '@/lib/itemsHash'
 import { enforceRateLimit } from '@/lib/rateLimit'
 import { Buffer } from 'node:buffer'
+import { withDebug } from '@/lib/debug'
 
 function createSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -137,14 +138,13 @@ const dbHash = computeItemsHashFromDbRows(rowsForHash as DbItemRowForHash[]).toL
 // ✅ 未保存ガード（x-items-hash）
 if (clientHash !== dbHash) {
   return respond(
-    {
-      error: 'items_not_saved',
-      message: '明細が未保存（またはDBと不一致）のため保存できません。編集画面で保存してから再実行してください。',
-      expected: dbHash, // 本番は消してOK
-      got: clientHash,  // 本番は消してOK
-    },
-    { status: 409 }
-  )
+  {
+    error: 'items_not_saved',
+    message: '明細が未保存（またはDBと不一致）のため保存できません。編集画面で保存してから再実行してください。',
+    ...withDebug({ expected: dbHash, got: clientHash }),
+  },
+  { status: 409 }
+)
 }
 
   // customer（無くてもPDF作る）

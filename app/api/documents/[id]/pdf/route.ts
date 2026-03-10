@@ -11,6 +11,7 @@ import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
 import { enforceRateLimit } from '@/lib/rateLimit'
 import { Buffer } from 'node:buffer'
+import { isDebug, withDebug } from '@/lib/debug'
 
 type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
 
@@ -160,10 +161,14 @@ try {
   return respondPdf(pdf as any)
 } catch (e: any) {
   console.error('[pdf/preview] render failed', e)
+
+  const detail = isDebug ? (e?.stack ?? e?.message ?? String(e)) : undefined
+
   return respondErr(
     {
       error: 'pdf_render_failed',
-      message: e?.message ?? String(e),
+      message: 'PDF生成に失敗しました。時間をおいて再実行してください。',
+      ...withDebug(detail ? { detail } : {}),
     },
     500
   )
