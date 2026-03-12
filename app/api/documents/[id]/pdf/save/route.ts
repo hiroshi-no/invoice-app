@@ -1,12 +1,14 @@
+// app/api/documents/[id]/pdf/save/route.ts
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 import { createClient } from '@supabase/supabase-js'
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { NextRequest } from 'next/server'
 import { Buffer } from 'node:buffer'
 
+import { createSupabaseServerClient } from '@/lib/api/supabase-server'
+import { respondJson } from '@/lib/api/response'
 import { calcTotals } from '@/lib/calc'
 import { withDebug } from '@/lib/debug'
 import { computeItemsHashFromDbRows, type DbItemRowForHash } from '@/lib/itemsHash'
@@ -28,26 +30,6 @@ function createSupabaseAdmin() {
   return createClient(url, serviceKey, { auth: { persistSession: false } })
 }
 
-function createSupabase(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-  const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
-
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll().map((c) => ({ name: c.name, value: c.value }))
-      },
-      setAll(list) {
-        cookiesToSet.push(...list)
-      },
-    },
-  })
-
-  return { supabase, cookiesToSet }
-}
-
 function num(v: any) {
   if (v == null) return 0
   const n = Number(v)
@@ -58,13 +40,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const params = await Promise.resolve((ctx as any).params)
   const documentId = String((params as any).id ?? '')
 
-  const { supabase, cookiesToSet } = createSupabase(req)
+  const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
   const respond = (body: any, init?: ResponseInit) => {
-    const res = NextResponse.json(body, init)
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
+    return respondJson(cookiesToSet, body, init)
   }
 
   const respondErr = (

@@ -1,10 +1,13 @@
+// app/api/documents/[id]/issue/route.ts
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
+
+import { createSupabaseServerClient } from '@/lib/api/supabase-server'
+import { respondJson } from '@/lib/api/response'
 import { withDebug } from '@/lib/debug'
+import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
 
 type RouteContext =
   | { params: { id: string } }
@@ -13,25 +16,12 @@ type RouteContext =
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function createSupabaseServerClient(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anonKey) throw new Error('Missing Supabase env vars')
-
-  const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
-
-  const supabase = createServerClient(url, anonKey, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll().map((c) => ({ name: c.name, value: c.value }))
-      },
-      setAll(list) {
-        cookiesToSet.push(...list)
-      },
-    },
-  })
-
-  return { supabase, cookiesToSet }
+type HashRow = {
+  position: number
+  description: string | null
+  quantity: number
+  unit_price_amount: number
+  line_subtotal_amount: number | null
 }
 
 async function issueViaRpc(supabase: any, documentId: string) {
@@ -42,21 +32,16 @@ async function issueViaRpc(supabase: any, documentId: string) {
   return { data, error }
 }
 
-type HashRow = {
-  position: number
-  description: string | null
-  quantity: number
-  unit_price_amount: number
-  line_subtotal_amount: number | null
-}
-
 export async function POST(req: NextRequest, ctx: RouteContext) {
   const params = await Promise.resolve((ctx as any).params)
   const documentId = String((params as any).id ?? '')
 
   if (!UUID_RE.test(documentId)) {
     return NextResponse.json(
-      { error: 'invalid_document_id', message: '不正なドキュメントIDです。' },
+      {
+        error: 'invalid_document_id',
+        message: '不正なドキュメントIDです。',
+      },
       { status: 400 }
     )
   }
@@ -64,10 +49,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
   const respond = (body: any, init?: ResponseInit) => {
-    const res = NextResponse.json(body, init)
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
-    return res
+    return respondJson(cookiesToSet, body, init)
   }
 
   const respondErr = (
