@@ -57,28 +57,7 @@ function isItemsNotSaved(payload: any) {
   return payload?.error === 'items_not_saved' || d?.error === 'items_not_saved'
 }
 
-function sanitizeDebug(payload: any) {
-  // 本番だけマスク（Preview/Localはデバッグ可能に）
-  const isProd = process.env.VERCEL_ENV === 'production'
-  if (!isProd) return payload
-
-  const clone = JSON.parse(JSON.stringify(payload ?? {}))
-
-  const strip = (obj: any) => {
-    if (!obj || typeof obj !== 'object') return
-    delete obj.expected
-    delete obj.got
-    delete obj.raw
-    delete obj.detail
-    delete obj.stack
-    for (const k of Object.keys(obj)) strip(obj[k])
-  }
-  strip(clone)
-  return clone
-}
-
 function friendlyMessage(stage: 'issue' | 'pdf', status: number, detail: any) {
-  // items_not_saved は最優先で固定文言
   if (isItemsNotSaved({ detail })) {
     return '明細が未保存です。編集画面で「保存」してから再実行してください。'
   }
@@ -102,17 +81,14 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   const { supabase, cookiesToSet } = createSupabase(req)
 
-  // auth（finalize 側でも先に弾く）
   const { data: userData, error: userErr } = await supabase.auth.getUser()
   if (userErr || !userData.user) {
     return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
   }
 
-  // 外部呼び出し（ブラウザ）なので finalize 自体にも rate limit（任意）
   const limited = await enforceRateLimit(supabase, 'finalize', 10, 60)
   if (limited) return limited
 
-  // header 要件（items-hash を必須化）
   const clientHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
   if (!clientHash) {
     return respondJson(
@@ -121,6 +97,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       { status: 428 }
     )
   }
+
   const confirm = (req.headers.get('x-confirm-saved-items') ?? '').trim()
   if (!confirm) {
     return respondJson(
@@ -130,7 +107,6 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     )
   }
 
-  // 内部呼び出し：cookie を転送して認証を通す
   const origin = new URL(req.url).origin
   const cookie = req.headers.get('cookie') ?? ''
 
@@ -141,7 +117,6 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     'x-confirm-saved-items': confirm,
   }
 
-  // 1) issue
   const issueRes = await fetch(`${origin}/api/documents/${documentId}/issue`, {
     method: 'POST',
     headers: baseHeaders,
@@ -152,16 +127,19 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   if (!issueRes.ok) {
     const detail = issueParsed.json ?? { raw: issueParsed.text }
-    const body = sanitizeDebug({
-      ok: false,
-      error: 'issue_failed',
-      message: friendlyMessage('issue', issueRes.status, detail),
-      detail,
-    })
-    return respondJson(cookiesToSet, body, { status: issueRes.status })
+
+    return respondJson(
+      cookiesToSet,
+      {
+        ok: false,
+        error: 'issue_failed',
+        message: friendlyMessage('issue', issueRes.status, detail),
+        ...withDebug({ detail }),
+      },
+      { status: issueRes.status }
+    )
   }
 
-  // 2) pdf/save
   const pdfRes = await fetch(`${origin}/api/documents/${documentId}/pdf/save`, {
     method: 'POST',
     headers: baseHeaders,
@@ -172,23 +150,29 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   if (!pdfRes.ok) {
     const detail = pdfParsed.json ?? { raw: pdfParsed.text }
-    const body = sanitizeDebug({
-      ok: false,
-      error: 'pdf_save_failed',
-      message: friendlyMessage('pdf', pdfRes.status, detail),
-      issue: issueParsed.json ?? { raw: issueParsed.text },
-      detail,
-    })
-    return respondJson(cookiesToSet, body, { status: pdfRes.status })
+
+    return respondJson(
+      cookiesToSet,
+      {
+        ok: false,
+        error: 'pdf_save_failed',
+        message: friendlyMessage('pdf', pdfRes.status, detail),
+        ...withDebug({
+          issue: issueParsed.json ?? { raw: issueParsed.text },
+          detail,
+        }),
+      },
+      { status: pdfRes.status }
+    )
   }
 
   return respondJson(
     cookiesToSet,
-    sanitizeDebug({
+    {
       ok: true,
       issue: issueParsed.json ?? { raw: issueParsed.text },
       pdf: pdfParsed.json ?? { raw: pdfParsed.text },
-    }),
+    },
     { status: 200 }
   )
 }

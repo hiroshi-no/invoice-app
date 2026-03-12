@@ -11,7 +11,7 @@ import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
 import { enforceRateLimit } from '@/lib/rateLimit'
 import { Buffer } from 'node:buffer'
-import { isDebug, withDebug } from '@/lib/debug'
+import { withDebug } from '@/lib/debug'
 
 type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
 
@@ -57,10 +57,11 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
    }
 
   const respondErr = (body: any, status = 500) => {
-    const res = NextResponse.json(body, { status })
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    return res
-  }
+  const res = NextResponse.json(body, { status })
+  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
+  res.headers.set('Cache-Control', 'no-store')
+  return res
+}
 
 const respondPdf = (pdf: Uint8Array) => {
   const body = Buffer.from(pdf) // ✅ Uint8Array -> Buffer(=BodyInit扱い)
@@ -162,13 +163,13 @@ try {
 } catch (e: any) {
   console.error('[pdf/preview] render failed', e)
 
-  const detail = isDebug ? (e?.stack ?? e?.message ?? String(e)) : undefined
-
   return respondErr(
     {
       error: 'pdf_render_failed',
       message: 'PDF生成に失敗しました。時間をおいて再実行してください。',
-      ...withDebug(detail ? { detail } : {}),
+      ...withDebug({
+        detail: e?.message ?? String(e),
+      }),
     },
     500
   )

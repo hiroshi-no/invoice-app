@@ -4,8 +4,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
+import { withDebug } from '@/lib/debug'
 
-type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
+type RouteContext =
+  | { params: { id: string } }
+  | { params: Promise<{ id: string }> }
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -34,7 +37,7 @@ function createSupabaseServerClient(req: NextRequest) {
 async function issueViaRpc(supabase: any, documentId: string) {
   const { data, error } = await supabase.rpc('issue_document', {
     p_document_id: documentId,
-    // p_issued_at: new Date().toISOString().slice(0, 10), // ←必要なら有効化
+    // p_issued_at: new Date().toISOString().slice(0, 10),
   })
   return { data, error }
 }
@@ -52,7 +55,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const documentId = String((params as any).id ?? '')
 
   if (!UUID_RE.test(documentId)) {
-    return NextResponse.json({ error: 'Invalid document id' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'invalid_document_id', message: '不正なドキュメントIDです。' },
+      { status: 400 }
+    )
   }
 
   const { supabase, cookiesToSet } = createSupabaseServerClient(req)
@@ -64,38 +70,80 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return res
   }
 
+  const respondErr = (
+    error: string,
+    message: string,
+    status = 500,
+    debug?: Record<string, unknown>
+  ) => {
+    return respond(
+      {
+        error,
+        message,
+        ...withDebug(debug),
+      },
+      { status }
+    )
+  }
+
   try {
-    // auth
     const { data: userData, error: userErr } = await supabase.auth.getUser()
     if (userErr || !userData.user) {
-      return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+      return respondErr(
+        'not_authenticated',
+        'ログインが切れました。再ログインしてください。',
+        401,
+        { detail: userErr?.message }
+      )
     }
 
-    // documents.status を見て draft 以外を 409（RLSで見えない時は 404）
-    // ✅ org_id も取って確定
     const { data: docHead, error: headErr } = await supabase
       .from('documents')
       .select('id, org_id, status')
       .eq('id', documentId)
       .maybeSingle()
 
-    if (headErr) return respond({ error: headErr.message }, { status: 500 })
-    if (!docHead) return respond({ error: 'Document not found' }, { status: 404 })
+    if (headErr) {
+      return respondErr(
+        'document_fetch_failed',
+        '帳票データの取得に失敗しました。時間をおいて再実行してください。',
+        500,
+        { detail: headErr.message }
+      )
+    }
+
+    if (!docHead) {
+      return respondErr('document_not_found', '対象が見つかりません。', 404)
+    }
 
     const orgId = String((docHead as any).org_id ?? '')
-    if (!UUID_RE.test(orgId)) return respond({ error: 'Document org_id not found' }, { status: 500 })
+    if (!UUID_RE.test(orgId)) {
+      return respondErr(
+        'document_org_not_found',
+        '帳票データが不正です。時間をおいて再実行してください。',
+        500,
+        { detail: 'Document org_id not found' }
+      )
+    }
 
     if ((docHead as any).status !== 'draft') {
-      return respond({ error: 'document status must be draft' }, { status: 409 })
+      return respondErr(
+        'invalid_document_status',
+        'この帳票は発行できません。下書き状態を確認してください。',
+        409,
+        { detail: (docHead as any).status }
+      )
     }
 
-    // 409ガード：未保存発行防止（x-items-hash）
     const clientHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
     if (!clientHash) {
-      return respond({ error: 'Precondition required: x-items-hash' }, { status: 428 })
+      return respondErr(
+        'precondition_required',
+        '明細ハッシュが必要です。編集画面で保存してから再実行してください。',
+        428
+      )
     }
 
-    // ✅ items 取得に org_id 条件を追加
     const { data: dbItems, error: itemsErr } = await supabase
       .from('document_items')
       .select('id, position, description, quantity, unit_price_amount, line_subtotal_amount')
@@ -104,17 +152,25 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       .order('position', { ascending: true })
       .order('id', { ascending: true })
 
-    if (itemsErr) return respond({ error: itemsErr.message ?? 'Failed to load items' }, { status: 500 })
+    if (itemsErr) {
+      return respondErr(
+        'items_fetch_failed',
+        '明細の取得に失敗しました。時間をおいて再実行してください。',
+        500,
+        { detail: itemsErr.message ?? 'Failed to load items' }
+      )
+    }
 
     const rowsForHash: HashRow[] = (dbItems ?? []).map((it: any) => ({
       position: Number(it.position ?? 0),
       description: it.description ?? null,
       quantity: Number(it.quantity ?? 0),
       unit_price_amount: Number(it.unit_price_amount ?? 0),
-      line_subtotal_amount: it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
+      line_subtotal_amount:
+        it.line_subtotal_amount == null ? null : Number(it.line_subtotal_amount),
     }))
 
-    const dbHash = computeItemsHashFromDbRows(rowsForHash as unknown as HashRow[]).toLowerCase()
+    const dbHash = computeItemsHashFromDbRows(rowsForHash).toLowerCase()
 
     if (clientHash !== dbHash) {
       return respond(
@@ -122,39 +178,68 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
           error: 'items_not_saved',
           message:
             '明細が未保存（またはDBと不一致）のため発行できません。編集画面で保存してから再実行してください。',
-          expected: dbHash, // 本番は消してOK
-          got: clientHash, // 本番は消してOK
+          ...withDebug({
+            expected: dbHash,
+            got: clientHash,
+          }),
         },
         { status: 409 }
       )
     }
 
-    // 採番＋issued化（DB関数）
     const { data: rpcData, error: rpcErr } = await issueViaRpc(supabase, documentId)
     if (rpcErr) {
-      const msg = String(rpcErr.message ?? '').toLowerCase()
-      const status = msg.includes('draft') ? 409 : 400
-      return respond({ error: rpcErr.message ?? 'issue rpc failed' }, { status })
+      const rpcMsg = String(rpcErr.message ?? '').toLowerCase()
+      const status = rpcMsg.includes('draft') ? 409 : 400
+
+      return respondErr(
+        'issue_rpc_failed',
+        status === 409
+          ? 'この帳票は発行できません。状態を確認してください。'
+          : '発行に失敗しました。時間をおいて再実行してください。',
+        status,
+        { detail: rpcErr.message ?? 'issue rpc failed' }
+      )
     }
 
-    // 再取得（RLSで見えないなら404）
-    // ✅ org_id 条件も付ける（安全）
     const { data: doc, error: docErr } = await supabase
       .from('documents')
-      .select('id, org_id, status, document_no, issued_at, currency, customer_id, subtotal_amount, tax_amount, total_amount')
+      .select(
+        'id, org_id, status, document_no, issued_at, currency, customer_id, subtotal_amount, tax_amount, total_amount'
+      )
       .eq('id', documentId)
       .eq('org_id', orgId)
       .maybeSingle()
 
-    if (docErr) return respond({ error: docErr.message }, { status: 500 })
-    if (!doc) return respond({ error: 'Document not found' }, { status: 404 })
+    if (docErr) {
+      return respondErr(
+        'document_refetch_failed',
+        '発行後の帳票取得に失敗しました。時間をおいて再実行してください。',
+        500,
+        { detail: docErr.message }
+      )
+    }
+
+    if (!doc) {
+      return respondErr('document_not_found', '対象が見つかりません。', 404)
+    }
 
     if ((doc as any).status !== 'issued') {
-      return respond({ error: 'Issue did not change status to issued' }, { status: 500 })
+      return respondErr(
+        'issue_status_not_updated',
+        '発行結果の反映を確認できませんでした。時間をおいて再確認してください。',
+        500,
+        { detail: 'Issue did not change status to issued' }
+      )
     }
 
     return respond({ ok: true, document: doc, rpc: rpcData ?? null }, { status: 200 })
   } catch (e: any) {
-    return respond({ error: e?.message ?? 'Internal Server Error' }, { status: 500 })
+    return respondErr(
+      'issue_failed',
+      '発行に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: e?.message ?? 'Internal Server Error' }
+    )
   }
 }

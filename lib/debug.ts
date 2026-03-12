@@ -1,7 +1,10 @@
 // lib/debug.ts
-export const isProd = process.env.VERCEL_ENV === 'production'
-export const isDebug = !isProd // local / preview は true
+export const isDebug = process.env.NODE_ENV !== 'production'
 
-export function withDebug<T extends object>(debugObj: T) {
-  return isDebug ? debugObj : {}
+export function withDebug<T extends Record<string, unknown>>(debugObj?: T) {
+  if (!isDebug || !debugObj) return {}
+
+  return Object.fromEntries(
+    Object.entries(debugObj).filter(([, v]) => v !== undefined)
+  )
 }
