@@ -1,6 +1,6 @@
 // lib/pdf/branding.ts
 import { Buffer } from 'node:buffer'
-import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
 
 export type TemplateKey = 'classic' | 'minimal'
 
@@ -88,32 +88,19 @@ export async function loadOrgBranding(supabase: any, orgId: string): Promise<Bra
     logoPath,
   }
 }
+
 /**
  * 互換：userId -> current_org_id -> org branding
  */
 export async function loadUserBranding(supabase: any, userId: string): Promise<Branding> {
-  let orgId: string | null = null
+  const result = await getCurrentOrgIdForUser(supabase, userId)
 
-  try {
-    orgId = await getCurrentOrgId(supabase, userId)
-  } catch (e: any) {
-    // 以前の挙動：org が取れない（未設定/行なし）ときはデフォルトにフォールバック
-    const msg = String(e?.message ?? '')
-    if (msg.includes('current_org_id not found')) {
-      return {
-        brandColor: DEFAULT_BRAND_COLOR,
-        templateKey: DEFAULT_TEMPLATE,
-        footerText: DEFAULT_FOOTER,
-        logoDataUri: null,
-        logoDataUrl: null,
-        logoMime: null,
-        logoPath: null,
-      }
-    }
-    // DBエラー等はそのまま上に投げる（旧: pErr を throw してたのと同等）
-    throw e
+  // DBエラー等はそのまま上に投げる
+  if (result.error) {
+    throw result.error
   }
 
+  const orgId = String(result.orgId ?? '')
   if (!orgId) {
     return {
       brandColor: DEFAULT_BRAND_COLOR,
@@ -126,5 +113,5 @@ export async function loadUserBranding(supabase: any, userId: string): Promise<B
     }
   }
 
-  return loadOrgBranding(supabase, String(orgId))
+  return loadOrgBranding(supabase, orgId)
 }

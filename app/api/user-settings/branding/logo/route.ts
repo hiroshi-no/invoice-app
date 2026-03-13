@@ -1,30 +1,14 @@
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import { Buffer } from 'node:buffer'
 
-function createSupabase(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-  const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
-
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll().map((c) => ({ name: c.name, value: c.value }))
-      },
-      setAll(list) {
-        cookiesToSet.push(...list)
-      },
-    },
-  })
-
-  return { supabase, cookiesToSet }
-}
+import { respondJson } from '@/lib/api/response'
+import { createSupabaseServerClient } from '@/lib/api/supabase-server'
+import { withDebug } from '@/lib/debug'
+import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
 function createServiceSupabase() {
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -33,29 +17,44 @@ function createServiceSupabase() {
   return createClient(url, serviceKey, { auth: { persistSession: false } })
 }
 
-function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
-  const res = NextResponse.json(body, init)
-  for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-  return res
-}
-
 const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 export async function GET(req: NextRequest) {
-  const { supabase, cookiesToSet } = createSupabase(req)
+  const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  const respond = (body: any, init?: ResponseInit) => {
+    return respondJson(cookiesToSet, body, init)
   }
 
-  const userId = userData.user.id
-  let orgId: string
-  try {
-    orgId = await getCurrentOrgId(supabase as any, userId)
-  } catch (e: any) {
-    return respondJson(cookiesToSet, { error: e?.message ?? 'org not found' }, { status: 500 })
+  const respondErr = (
+    error: string,
+    message: string,
+    status = 500,
+    debug?: Record<string, unknown>
+  ) => {
+    return respond(
+      {
+        error,
+        message,
+        ...withDebug(debug),
+      },
+      { status }
+    )
   }
+
+  const current = await requireCurrentOrgId(supabase as any)
+  if (!current.ok) {
+    const { detail, ...safeBody } = current.body
+    return respond(
+      {
+        ...safeBody,
+        ...withDebug(detail ? { detail } : {}),
+      },
+      { status: current.status }
+    )
+  }
+
+  const { orgId } = current
 
   const { data: settings, error } = await supabase
     .from('user_settings')
@@ -63,55 +62,100 @@ export async function GET(req: NextRequest) {
     .eq('org_id', orgId)
     .maybeSingle()
 
-  if (error) return respondJson(cookiesToSet, { error: error.message }, { status: 500 })
+  if (error) {
+    return respondErr(
+      'branding_fetch_failed',
+      'ロゴ設定の取得に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: error.message, orgId }
+    )
+  }
 
   const logoPath = String((settings as any)?.logo_path ?? '')
   const logoMime = String((settings as any)?.logo_mime ?? '')
 
-  if (!logoPath) return respondJson(cookiesToSet, { logo: null }, { status: 200 })
+  if (!logoPath) {
+    return respond({ logo: null }, { status: 200 })
+  }
 
-  return respondJson(cookiesToSet, { logo: { path: logoPath, mime: logoMime } }, { status: 200 })
+  return respond({ logo: { path: logoPath, mime: logoMime } }, { status: 200 })
 }
 
 export async function POST(req: NextRequest) {
-  const { supabase, cookiesToSet } = createSupabase(req)
+  const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  const respond = (body: any, init?: ResponseInit) => {
+    return respondJson(cookiesToSet, body, init)
   }
 
-  const userId = userData.user.id
-  let orgId: string
-  try {
-    orgId = await getCurrentOrgId(supabase as any, userId)
-  } catch (e: any) {
-    return respondJson(cookiesToSet, { error: e?.message ?? 'org not found' }, { status: 500 })
+  const respondErr = (
+    error: string,
+    message: string,
+    status = 500,
+    debug?: Record<string, unknown>
+  ) => {
+    return respond(
+      {
+        error,
+        message,
+        ...withDebug(debug),
+      },
+      { status }
+    )
   }
 
-  // multipart
+  const current = await requireCurrentOrgId(supabase as any)
+  if (!current.ok) {
+    const { detail, ...safeBody } = current.body
+    return respond(
+      {
+        ...safeBody,
+        ...withDebug(detail ? { detail } : {}),
+      },
+      { status: current.status }
+    )
+  }
+
+  const { orgId, userId } = current
+
   let file: File | null = null
   try {
     const form = await req.formData()
     file = (form.get('file') as any) ?? null
   } catch {
-    return respondJson(cookiesToSet, { error: 'Invalid multipart/form-data' }, { status: 400 })
+    return respondErr(
+      'invalid_multipart',
+      'アップロード内容が不正です。multipart/form-data を確認してください。',
+      400
+    )
   }
 
   if (!file || typeof (file as any).arrayBuffer !== 'function') {
-    return respondJson(cookiesToSet, { error: 'file is required (field name: file)' }, { status: 400 })
+    return respondErr(
+      'file_required',
+      'ファイルが必要です（field name: file）。',
+      400
+    )
   }
 
   const mime = String((file as any).type ?? '').toLowerCase()
   if (!ALLOWED_MIME.has(mime)) {
-    return respondJson(cookiesToSet, { error: `Unsupported file type: ${mime}` }, { status: 400 })
+    return respondErr(
+      'unsupported_file_type',
+      '対応していない画像形式です。PNG / JPEG / WebP を使用してください。',
+      400,
+      { detail: mime }
+    )
   }
 
   const size = Number((file as any).size ?? 0)
-  if (size <= 0) return respondJson(cookiesToSet, { error: 'Empty file' }, { status: 400 })
-  if (size > 2 * 1024 * 1024) return respondJson(cookiesToSet, { error: 'File too large (max 2MB)' }, { status: 413 })
+  if (size <= 0) {
+    return respondErr('empty_file', '空のファイルはアップロードできません。', 400)
+  }
+  if (size > 2 * 1024 * 1024) {
+    return respondErr('file_too_large', 'ファイルサイズが大きすぎます（最大 2MB）。', 413)
+  }
 
-  // ✅ org共通パス
   const extByMime: Record<string, string> = {
     'image/png': 'png',
     'image/jpeg': 'jpg',
@@ -120,20 +164,32 @@ export async function POST(req: NextRequest) {
 
   const ext = extByMime[mime]
   if (!ext) {
-    return respondJson(cookiesToSet, { error: `Unsupported file type: ${mime}` }, { status: 400 })
+    return respondErr(
+      'unsupported_file_type',
+      '対応していない画像形式です。',
+      400,
+      { detail: mime }
+    )
   }
 
-  // 方針：branding/<orgId>/logo.ext
   const logoPath = `branding/${orgId}/logo.${ext}`
 
-  // 旧logo_pathが別なら消す（拡張子変更でゴミが残るのを防ぐ）
   const { data: cur, error: curErr } = await supabase
     .from('user_settings')
     .select('logo_path')
     .eq('org_id', orgId)
     .maybeSingle()
 
-  const oldPath = curErr ? '' : String((cur as any)?.logo_path ?? '')
+  if (curErr) {
+    return respondErr(
+      'branding_fetch_failed',
+      '現在のロゴ設定の取得に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: curErr.message, orgId }
+    )
+  }
+
+  const oldPath = String((cur as any)?.logo_path ?? '')
   if (oldPath && oldPath !== logoPath) {
     try {
       const service = createServiceSupabase()
@@ -143,24 +199,35 @@ export async function POST(req: NextRequest) {
 
   const buf = Buffer.from(await (file as any).arrayBuffer())
 
-  // Storage：service role で上書き
   try {
     const service = createServiceSupabase()
     const { error: upErr } = await service.storage.from('branding').upload(logoPath, buf, {
       contentType: mime,
       upsert: true,
     })
-    if (upErr) return respondJson(cookiesToSet, { error: 'Storage upload failed: ' + upErr.message }, { status: 500 })
+
+    if (upErr) {
+      return respondErr(
+        'storage_upload_failed',
+        'ロゴ画像の保存に失敗しました。時間をおいて再実行してください。',
+        500,
+        { detail: upErr.message, orgId, logoPath }
+      )
+    }
   } catch (e: any) {
-    return respondJson(cookiesToSet, { error: e?.message ?? 'Storage upload failed' }, { status: 500 })
+    return respondErr(
+      'storage_upload_failed',
+      'ロゴ画像の保存に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: e?.message ?? 'Storage upload failed', orgId, logoPath }
+    )
   }
 
-  // user_settings：org単位で upsert（onConflict: org_id）
   const now = new Date().toISOString()
   const { error: dbErr } = await supabase.from('user_settings').upsert(
     {
       org_id: orgId,
-      user_id: userId, // 最後に更新した人（用途自由）
+      user_id: userId,
       logo_path: logoPath,
       logo_mime: mime,
       updated_at: now,
@@ -168,29 +235,69 @@ export async function POST(req: NextRequest) {
     { onConflict: 'org_id' }
   )
 
-  if (dbErr) return respondJson(cookiesToSet, { error: 'user_settings upsert failed: ' + dbErr.message }, { status: 500 })
+  if (dbErr) {
+    return respondErr(
+      'branding_upsert_failed',
+      'ロゴ設定の保存に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: dbErr.message, orgId, logoPath, mime }
+    )
+  }
 
-  return respondJson(cookiesToSet, { ok: true, logo: { path: logoPath, mime } }, { status: 200 })
+  return respond({ ok: true, logo: { path: logoPath, mime } }, { status: 200 })
 }
 
 export async function DELETE(req: NextRequest) {
-  const { supabase, cookiesToSet } = createSupabase(req)
+  const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  const respond = (body: any, init?: ResponseInit) => {
+    return respondJson(cookiesToSet, body, init)
   }
 
-  const userId = userData.user.id
-  let orgId: string
-  try {
-    orgId = await getCurrentOrgId(supabase as any, userId)
-  } catch (e: any) {
-    return respondJson(cookiesToSet, { error: e?.message ?? 'org not found' }, { status: 500 })
+  const respondErr = (
+    error: string,
+    message: string,
+    status = 500,
+    debug?: Record<string, unknown>
+  ) => {
+    return respond(
+      {
+        error,
+        message,
+        ...withDebug(debug),
+      },
+      { status }
+    )
   }
 
-  const { data: settings, error } = await supabase.from('user_settings').select('logo_path').eq('org_id', orgId).maybeSingle()
-  if (error) return respondJson(cookiesToSet, { error: error.message }, { status: 500 })
+  const current = await requireCurrentOrgId(supabase as any)
+  if (!current.ok) {
+    const { detail, ...safeBody } = current.body
+    return respond(
+      {
+        ...safeBody,
+        ...withDebug(detail ? { detail } : {}),
+      },
+      { status: current.status }
+    )
+  }
+
+  const { orgId, userId } = current
+
+  const { data: settings, error } = await supabase
+    .from('user_settings')
+    .select('logo_path')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error) {
+    return respondErr(
+      'branding_fetch_failed',
+      'ロゴ設定の取得に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: error.message, orgId }
+    )
+  }
 
   const logoPath = String((settings as any)?.logo_path ?? '')
 
@@ -203,11 +310,24 @@ export async function DELETE(req: NextRequest) {
 
   const now = new Date().toISOString()
   const { error: updErr } = await supabase.from('user_settings').upsert(
-    { org_id: orgId, user_id: userId, logo_path: null, logo_mime: null, updated_at: now },
+    {
+      org_id: orgId,
+      user_id: userId,
+      logo_path: null,
+      logo_mime: null,
+      updated_at: now,
+    },
     { onConflict: 'org_id' }
   )
 
-  if (updErr) return respondJson(cookiesToSet, { error: 'user_settings update failed: ' + updErr.message }, { status: 500 })
+  if (updErr) {
+    return respondErr(
+      'branding_update_failed',
+      'ロゴ設定の削除に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: updErr.message, orgId }
+    )
+  }
 
-  return respondJson(cookiesToSet, { ok: true }, { status: 200 })
+  return respond({ ok: true }, { status: 200 })
 }

@@ -2,30 +2,13 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
-import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
-function createSupabase(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-  const cookiesToSet: Array<{ name: string; value: string; options?: any }> = []
-
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll() {
-        return req.cookies.getAll().map((c) => ({ name: c.name, value: c.value }))
-      },
-      setAll(list) {
-        cookiesToSet.push(...list)
-      },
-    },
-  })
-
-  return { supabase, cookiesToSet }
-}
+import { applyCookies, respondJson } from '@/lib/api/response'
+import { createSupabaseServerClient } from '@/lib/api/supabase-server'
+import { withDebug } from '@/lib/debug'
+import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
 function createServiceSupabase() {
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -35,49 +18,94 @@ function createServiceSupabase() {
 }
 
 export async function GET(req: NextRequest) {
-  const { supabase, cookiesToSet } = createSupabase(req)
+  const { supabase, cookiesToSet } = createSupabaseServerClient(req)
 
-  const withCookies = (res: NextResponse) => {
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    return res
+  const withCookies = (res: NextResponse) => applyCookies(res, cookiesToSet)
+
+  const respond = (body: any, init?: ResponseInit) => {
+    return respondJson(cookiesToSet, body, init)
   }
 
-  // auth
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return withCookies(NextResponse.json({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 }))
+  const respondErr = (
+    error: string,
+    message: string,
+    status = 500,
+    debug?: Record<string, unknown>
+  ) => {
+    return respond(
+      {
+        error,
+        message,
+        ...withDebug(debug),
+      },
+      { status }
+    )
   }
-  const userId = userData.user.id
 
-  // current org（profiles直読みは lib に集約）
-  let orgId: string
-  try {
-    orgId = await getCurrentOrgId(supabase as any, userId)
-  } catch (e: any) {
-    return withCookies(NextResponse.json({ error: e?.message ?? 'org not found' }, { status: 500 }))
+  const current = await requireCurrentOrgId(supabase as any)
+  if (!current.ok) {
+    const { detail, ...safeBody } = current.body
+    return respond(
+      {
+        ...safeBody,
+        ...withDebug(detail ? { detail } : {}),
+      },
+      { status: current.status }
+    )
   }
 
-  // user_settings（org単位）
+  const { orgId } = current
+
   const { data: settings, error: sErr } = await supabase
     .from('user_settings')
     .select('logo_path, logo_mime')
     .eq('org_id', orgId)
     .maybeSingle()
 
-  if (sErr) return withCookies(NextResponse.json({ error: sErr.message }, { status: 500 }))
+  if (sErr) {
+    return respondErr(
+      'branding_fetch_failed',
+      'ロゴ設定の取得に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: sErr.message, orgId }
+    )
+  }
 
   const logoPath = String((settings as any)?.logo_path ?? '')
   const logoMime = String((settings as any)?.logo_mime ?? '')
 
-  // ロゴ未設定なら 204（No Content）
-  if (!logoPath) return withCookies(new NextResponse(null, { status: 204 }))
+  if (!logoPath) {
+    const res = new NextResponse(null, {
+      status: 204,
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+    })
+    return withCookies(res)
+  }
 
-  // Storage download（Service Role）
-  const service = createServiceSupabase()
-  const { data: blob, error: dlErr } = await service.storage.from('branding').download(logoPath)
+  let blob: Blob | null = null
+  try {
+    const service = createServiceSupabase()
+    const { data, error: dlErr } = await service.storage.from('branding').download(logoPath)
 
-  if (dlErr || !blob) {
-    return withCookies(NextResponse.json({ error: dlErr?.message ?? 'logo download failed' }, { status: 404 }))
+    if (dlErr || !data) {
+      return respondErr(
+        'logo_not_found',
+        'ロゴ画像が見つかりません。',
+        404,
+        { detail: dlErr?.message ?? 'logo download failed', orgId, logoPath }
+      )
+    }
+
+    blob = data
+  } catch (e: any) {
+    return respondErr(
+      'logo_download_failed',
+      'ロゴ画像の取得に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: e?.message ?? 'logo download failed', orgId, logoPath }
+    )
   }
 
   const ab = await blob.arrayBuffer()
@@ -88,7 +116,6 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       'Content-Type': mime,
-      // 変更が即反映されるように no-store（必要なら private,max-age=60 等に変更OK）
       'Cache-Control': 'no-store',
     },
   })

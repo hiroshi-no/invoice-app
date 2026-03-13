@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,11 +44,18 @@ export default async function MonthlyDetailPage({ params }: Props) {
 
   const userId = userData.user.id
 
-  // ✅ current org を確定（profiles直読みは lib に集約）
-  let orgId: string
+  let orgId = ''
   try {
-    orgId = await getCurrentOrgId(supabase as any, userId)
-    if (!UUID_RE.test(orgId)) throw new Error('current_org_id invalid')
+    const result = await getCurrentOrgIdForUser(supabase as any, userId)
+
+    if (result.error) {
+      throw result.error
+    }
+
+    orgId = String(result.orgId ?? '')
+    if (!UUID_RE.test(orgId)) {
+      throw new Error('current_org_id invalid')
+    }
   } catch (e: any) {
     return (
       <div style={{ maxWidth: 980, margin: '40px auto', fontFamily: 'sans-serif' }}>
@@ -59,11 +66,9 @@ export default async function MonthlyDetailPage({ params }: Props) {
     )
   }
 
-  // issued_at が timestamptz（UTC保存）でも月境界がズレないように JST(+09:00) を明示
   const from = `${ym}-01T00:00:00+09:00`
   const to = `${nextYm(ym)}-01T00:00:00+09:00`
 
-  // ✅ issued のみ（月内） + orgで絞る
   const { data: docs, error } = await supabase
     .from('documents')
     .select('id, document_no, issued_at, currency, subtotal_amount, tax_amount, total_amount, customer_id')
@@ -85,7 +90,6 @@ export default async function MonthlyDetailPage({ params }: Props) {
 
   const list = (docs ?? []) as Array<any>
 
-  // customer 名をまとめて取得（customer_id があれば）
   const customerIds = Array.from(
     new Set(list.map((d) => String(d.customer_id ?? '')).filter((x) => x && x !== 'null'))
   )
@@ -113,12 +117,11 @@ export default async function MonthlyDetailPage({ params }: Props) {
     }
   }
 
-  const fmtDate = (v: any) => (v ? new Date(v).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '')
+  const fmtDate = (v: any) =>
+    v ? new Date(v).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) : ''
 
-  // 数値フォーマット（「1,234」形式）
   const fmt = (n: number) => new Intl.NumberFormat('ja-JP').format(Number(n ?? 0))
 
-  // 合計（通貨別）
   const agg = new Map<string, { docs: number; subtotal: number; tax: number; total: number }>()
   for (const d of list) {
     const cur = String(d.currency ?? 'JPY')
@@ -137,7 +140,6 @@ export default async function MonthlyDetailPage({ params }: Props) {
         <h1>月別明細 {ym}</h1>
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
-          {/* ✅ CSVダウンロード（Route Handler /dashboard/monthly/[ym]/export に投げる） */}
           <a href={`/dashboard/monthly/${ym}/export`} style={{ textDecoration: 'underline' }}>
             CSVダウンロード
           </a>

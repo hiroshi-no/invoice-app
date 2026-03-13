@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
-import { getCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,7 +9,6 @@ export const dynamic = 'force-dynamic'
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-// cookies() が同期/非同期どっちでも安全に扱う
 async function getCookieStore() {
   const c: any = cookies()
   return typeof c?.then === 'function' ? await c : c
@@ -23,9 +22,11 @@ async function createSupabase() {
   return createServerClient(url, key, {
     cookies: {
       getAll() {
-        return cookieStore.getAll().map((c: any) => ({ name: c.name, value: c.value }))
+        return cookieStore.getAll().map((c: any) => ({
+          name: c.name,
+          value: c.value,
+        }))
       },
-      // Server Componentでは set はできないので no-op
       setAll() {
         /* noop */
       },
@@ -48,11 +49,18 @@ export default async function DocumentsPage() {
     )
   }
 
-  // ✅ current org を確定 → documents を org で絞る
-  let orgId: string
+  let orgId = ''
   try {
-    orgId = await getCurrentOrgId(supabase as any, userData.user.id)
-    if (!UUID_RE.test(orgId)) throw new Error('current_org_id invalid')
+    const result = await getCurrentOrgIdForUser(supabase as any, userData.user.id)
+
+    if (result.error) {
+      throw result.error
+    }
+
+    orgId = String(result.orgId ?? '')
+    if (!UUID_RE.test(orgId)) {
+      throw new Error('current_org_id invalid')
+    }
   } catch (e: any) {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
@@ -68,7 +76,7 @@ export default async function DocumentsPage() {
   const { data: docs, error } = await supabase
     .from('documents')
     .select('id, doc_type, status, document_no, issued_at, total_amount, currency, customer_id')
-    .eq('org_id', orgId) // ✅ org整合
+    .eq('org_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
 
