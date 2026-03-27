@@ -60,7 +60,7 @@ export function DocumentMetaForm({
       normalize({
         customer_id: initial.customer_id ?? '',
         customer_name: initial.customer_name ?? '',
-        customer_honorific: initial.customer_honorific ?? '',
+        customer_honorific: initial.customer_honorific ?? null,
         title: initial.title ?? '',
         notes: initial.notes ?? '',
         due_date: initial.due_date ?? '',
