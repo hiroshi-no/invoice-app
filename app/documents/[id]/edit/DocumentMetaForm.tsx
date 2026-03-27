@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 type Customer = { id: string; name: string }
+type CustomerHonorific = '' | '御中' | '様'
 
 export type DocumentMetaDraft = {
   customer_id?: string | null
@@ -13,6 +14,15 @@ export type DocumentMetaDraft = {
   title?: string | null
   notes?: string | null
   due_date?: string | null
+}
+
+type NormalizedMetaDraft = {
+  customer_id: string
+  customer_name: string
+  customer_honorific: CustomerHonorific
+  title: string
+  notes: string
+  due_date: string
 }
 
 function getDueDateLabel(docType?: string | null) {
@@ -25,6 +35,10 @@ function getTitlePlaceholder(docType?: string | null) {
   return v === 'quote' || v === 'quotation'
     ? '例）Webサイト制作お見積書'
     : '例）2026年3月分 ご請求書'
+}
+
+function toHonorific(value: string | null | undefined): CustomerHonorific {
+  return value === '御中' || value === '様' ? value : ''
 }
 
 export function DocumentMetaForm({
@@ -46,10 +60,10 @@ export function DocumentMetaForm({
   const dueDateLabel = getDueDateLabel(docType)
   const titlePlaceholder = getTitlePlaceholder(docType)
 
-  const normalize = (v: DocumentMetaDraft & { customer_id?: string | null }) => ({
+  const normalize = (v: DocumentMetaDraft): NormalizedMetaDraft => ({
     customer_id: String(v.customer_id ?? ''),
     customer_name: String(v.customer_name ?? ''),
-    customer_honorific: String(v.customer_honorific ?? ''),
+    customer_honorific: toHonorific(v.customer_honorific),
     title: String(v.title ?? ''),
     notes: String(v.notes ?? ''),
     due_date: String(v.due_date ?? ''),
@@ -80,12 +94,14 @@ export function DocumentMetaForm({
     [initialNormalized]
   )
 
-  const [customerId, setCustomerId] = useState(initial.customer_id ?? '')
-  const [customerName, setCustomerName] = useState(initial.customer_name ?? '')
-  const [customerHonorific, setCustomerHonorific] = useState(initial.customer_honorific ?? '')
-  const [title, setTitle] = useState(initial.title ?? '')
-  const [notes, setNotes] = useState(initial.notes ?? '')
-  const [dueDate, setDueDate] = useState(initial.due_date ?? '')
+  const [customerId, setCustomerId] = useState<string>(initial.customer_id ?? '')
+  const [customerName, setCustomerName] = useState<string>(initial.customer_name ?? '')
+  const [customerHonorific, setCustomerHonorific] = useState<CustomerHonorific>(
+    toHonorific(initial.customer_honorific)
+  )
+  const [title, setTitle] = useState<string>(initial.title ?? '')
+  const [notes, setNotes] = useState<string>(initial.notes ?? '')
+  const [dueDate, setDueDate] = useState<string>(initial.due_date ?? '')
 
   const [customerList, setCustomerList] = useState<Customer[]>(customers ?? [])
 
@@ -147,7 +163,7 @@ export function DocumentMetaForm({
 
     setCustomerId(initial.customer_id ?? '')
     setCustomerName(initial.customer_name ?? '')
-    setCustomerHonorific(initial.customer_honorific ?? '')
+    setCustomerHonorific(toHonorific(initial.customer_honorific))
     setTitle(initial.title ?? '')
     setNotes(initial.notes ?? '')
     setDueDate(initial.due_date ?? '')
@@ -260,16 +276,7 @@ export function DocumentMetaForm({
         return false
       }
 
-      const savedDraft = {
-        customer_id: payload.customer_id ?? '',
-        customer_name: payload.customer_name ?? '',
-        customer_honorific: payload.customer_honorific ?? '',
-        title: payload.title ?? '',
-        notes: payload.notes ?? '',
-        due_date: payload.due_date ?? '',
-      }
-
-      setBaseState(JSON.stringify(normalize(savedDraft)))
+      setBaseState(JSON.stringify(normalize(payload)))
       setOk('書類情報を保存しました')
 
       try {
@@ -358,7 +365,7 @@ export function DocumentMetaForm({
               onChange={(e) => {
                 setErr(null)
                 setOk(null)
-                setCustomerHonorific(e.target.value)
+                setCustomerHonorific(toHonorific(e.target.value))
               }}
               style={input}
               disabled={busy}
