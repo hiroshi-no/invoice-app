@@ -70,31 +70,40 @@ function buildDefaultOrgName(email?: string | null) {
   return `${local} のワークスペース`
 }
 
-async function createOrganization(admin: ReturnType<typeof createSupabaseAdminClient>, user: any) {
+async function findExistingOrganization(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string
+) {
+  const { data, error } = await admin
+    .from('organizations')
+    .select('id')
+    .eq('owner_user_id', userId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data?.id ? String(data.id) : null
+}
+
+async function createOrganization(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  user: any
+) {
   const orgName = buildDefaultOrgName(user?.email)
 
-  const candidates = [
-    { name: orgName, created_by: user.id },
-    { name: orgName },
-  ]
+  const { data, error } = await admin
+    .from('organizations')
+    .insert({
+      owner_user_id: user.id,
+      name: orgName,
+    })
+    .select('id')
+    .single()
 
-  let lastError: any = null
-
-  for (const payload of candidates) {
-    const { data, error } = await admin
-      .from('organizations')
-      .insert(payload)
-      .select('id')
-      .single()
-
-    if (!error && data?.id) {
-      return String(data.id)
-    }
-
-    lastError = error
+  if (error || !data?.id) {
+    throw error ?? new Error('Failed to create organization')
   }
 
-  throw lastError ?? new Error('Failed to create organization')
+  return String(data.id)
 }
 
 export async function POST() {
@@ -145,7 +154,24 @@ export async function POST() {
       })
     }
 
-    const orgId = await createOrganization(admin, user)
+    let orgId: string | null = null
+
+    try {
+      orgId = await findExistingOrganization(admin, user.id)
+    } catch (e: any) {
+      return json(
+        {
+          ok: false,
+          error: 'organization_read_failed',
+          message: String(e?.message ?? e ?? 'unknown error'),
+        },
+        { status: 500 }
+      )
+    }
+
+    if (!orgId) {
+      orgId = await createOrganization(admin, user)
+    }
 
     const { error: upsertError } = await admin.from('profiles').upsert(
       {
