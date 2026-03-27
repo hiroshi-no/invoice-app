@@ -1686,7 +1686,7 @@ function renderHeaderCorporate(args: RenderPartsArgs) {
 function renderHeader(args: RenderPartsArgs) {
   switch (args.templateKey) {
     case 'minimal':
-      return renderHeaderMinimal(args)
+      return renderHeaderClassic(args)
     case 'modern':
       return renderHeaderModern(args)
     case 'elegant':
