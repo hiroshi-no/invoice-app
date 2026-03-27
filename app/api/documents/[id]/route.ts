@@ -34,6 +34,18 @@ async function unwrapParams(ctx: RouteContext) {
   return 'then' in p ? await p : p
 }
 
+function nullableText(v: unknown) {
+  if (v == null) return null
+  const s = String(v).trim()
+  return s ? s : null
+}
+
+function normalizeCustomerHonorific(v: unknown): '御中' | '様' | null {
+  const s = String(v ?? '').trim()
+  if (s === '御中' || s === '様') return s
+  return null
+}
+
 async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
   const params = await unwrapParams(ctx)
   const documentId = String((params as any)?.id ?? '')
@@ -51,7 +63,6 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
     return respond({ error: 'Invalid document id' }, { status: 400 })
   }
 
-  // auth
   const { data: userData, error: userErr } = await supabase.auth.getUser()
   if (userErr || !userData.user) {
     return respond({ error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
@@ -59,7 +70,6 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
 
   const body = await req.json().catch(() => ({}))
 
-  // doc取得（RLSで見えない=404）
   const { data: doc, error: docErr } = await supabase
     .from('documents')
     .select('id, org_id, status')
@@ -72,21 +82,18 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
   const orgId = String((doc as any).org_id ?? '')
   if (!UUID_RE.test(orgId)) return respond({ error: 'Document org_id not found' }, { status: 500 })
 
-  // draftのみ更新可
   if ((doc as any).status !== 'draft') {
     return respond({ error: 'document status must be draft' }, { status: 409 })
   }
 
-  // customer_id を更新する場合は「同orgの customer か」検証（安全策）
   const nextCustomerId = body?.customer_id ?? null
   if (nextCustomerId) {
     const idStr = String(nextCustomerId)
-    // customer_id が UUID の前提ならチェック（違う型ならここは外してください）
     if (!UUID_RE.test(idStr)) return respond({ error: 'Invalid customer_id' }, { status: 400 })
 
     const { data: c, error: cErr } = await supabase
       .from('customers')
-      .select('id')
+      .select('id, name')
       .eq('id', idStr)
       .eq('org_id', orgId)
       .maybeSingle()
@@ -95,10 +102,15 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
     if (!c) return respond({ error: 'Invalid customer_id' }, { status: 400 })
   }
 
+  const nextCustomerName = nullableText(body?.customer_name)
+  const nextCustomerHonorific = normalizeCustomerHonorific(body?.customer_honorific)
+
   const patch: any = {
     customer_id: nextCustomerId,
-    title: body?.title ?? null,
-    notes: body?.notes ?? null,
+    customer_name: nextCustomerName,
+    customer_honorific: nextCustomerHonorific,
+    title: nullableText(body?.title),
+    notes: nullableText(body?.notes),
     due_date: body?.due_date ?? null,
     updated_at: new Date().toISOString(),
   }
@@ -107,7 +119,7 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
     .from('documents')
     .update(patch)
     .eq('id', documentId)
-    .eq('org_id', orgId) // ✅ org整合
+    .eq('org_id', orgId)
     .select('*')
     .maybeSingle()
 

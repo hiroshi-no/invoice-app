@@ -20,13 +20,13 @@ export default async function DashboardPage() {
   const year = new Date().getFullYear()
 
   return (
-    <main style={{ padding: 20 }}>
-      <h1>Dashboard</h1>
+    <main style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px' }}>
+      <h1>ダッシュボード</h1>
       <p>User: {userData.user.email}</p>
 
       {/* ✅ Branding（個人専用） */}
       <div style={{ marginTop: 12, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Branding</div>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>ブランディング</div>
         <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
           {hasLogo ? 'ロゴ設定済み' : 'ロゴ未設定'}
         </div>

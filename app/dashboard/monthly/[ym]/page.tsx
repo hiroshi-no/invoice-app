@@ -46,13 +46,9 @@ export default async function MonthlyDetailPage({ params }: Props) {
 
   let orgId = ''
   try {
-    const result = await getCurrentOrgIdForUser(supabase as any, userId)
+    const currentOrgId = await getCurrentOrgIdForUser(supabase as any, userId)
 
-    if (result.error) {
-      throw result.error
-    }
-
-    orgId = String(result.orgId ?? '')
+    orgId = String(currentOrgId ?? '')
     if (!UUID_RE.test(orgId)) {
       throw new Error('current_org_id invalid')
     }

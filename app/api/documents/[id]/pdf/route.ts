@@ -1,4 +1,3 @@
-// app/api/documents/[id]/pdf/route.ts
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -8,27 +7,83 @@ import { Buffer } from 'node:buffer'
 
 import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { applyCookies, respondJson } from '@/lib/api/response'
-import { calcTotals } from '@/lib/calc'
 import { withDebug } from '@/lib/debug'
 import { loadOrgBranding } from '@/lib/pdf/branding'
 import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
+import { buildInvoiceViewModel } from '@/lib/pdf/buildInvoiceViewModel'
+import { getPdfFontCss } from '@/lib/pdf/fontCss'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
+import { computePreviewHash } from '@/lib/pdf/previewHash'
 import { enforceRateLimit } from '@/lib/rateLimit'
 
 type RouteContext =
   | { params: { id: string } }
   | { params: Promise<{ id: string }> }
 
+type PreviewOverrideBody = {
+  customer_id?: string | null
+  customer_name?: string | null
+  customer_honorific?: string | null
+  title?: string | null
+  notes?: string | null
+  due_date?: string | null
+  items?: Array<{
+    description?: string | null
+    quantity?: number | null
+    unit_price_amount?: number | null
+    line_subtotal_amount?: number | null
+  }>
+}
+
+type PreviewCacheEntry = {
+  pdf: Buffer
+  createdAt: number
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function num(v: any) {
-  if (v == null) return 0
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
+const PREVIEW_CACHE_TTL_MS = 60_000
+const previewPdfCache = new Map<string, PreviewCacheEntry>()
+
+function nonEmptyString(v: any) {
+  const s = String(v ?? '').trim()
+  return s ? s : ''
 }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+function isUuid(v: any) {
+  return typeof v === 'string' && UUID_RE.test(v)
+}
+
+function getCachedPreviewPdf(cacheKey: string): Buffer | null {
+  const hit = previewPdfCache.get(cacheKey)
+  if (!hit) return null
+
+  if (Date.now() - hit.createdAt > PREVIEW_CACHE_TTL_MS) {
+    previewPdfCache.delete(cacheKey)
+    return null
+  }
+
+  return hit.pdf
+}
+
+function setCachedPreviewPdf(cacheKey: string, pdf: Uint8Array) {
+  previewPdfCache.set(cacheKey, {
+    pdf: Buffer.from(pdf),
+    createdAt: Date.now(),
+  })
+}
+
+function prunePreviewCache() {
+  const now = Date.now()
+  for (const [key, value] of previewPdfCache.entries()) {
+    if (now - value.createdAt > PREVIEW_CACHE_TTL_MS) {
+      previewPdfCache.delete(key)
+    }
+  }
+}
+
+async function handlePreview(req: NextRequest, ctx: RouteContext, method: 'GET' | 'POST') {
   const params = await Promise.resolve((ctx as any).params)
   const documentId = String((params as any).id ?? '')
 
@@ -40,7 +95,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     return respondJson(cookiesToSet, body, { status })
   }
 
-  const respondPdf = (pdf: Uint8Array) => {
+  const respondPdf = (pdf: Uint8Array | Buffer) => {
     const body = Buffer.from(pdf)
     const res = new NextResponse(body, {
       status: 200,
@@ -69,12 +124,19 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     )
   }
 
-  const limited = await enforceRateLimit(supabase, 'pdf_preview', 2, 60)
+  const limited = await enforceRateLimit(supabase, 'pdf_preview', 10, 60)
   if (limited) return withCookies(limited as NextResponse)
+
+  const override: PreviewOverrideBody =
+    method === 'POST'
+      ? await req.json().catch(() => ({}))
+      : {}
 
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, org_id, customer_id, status, currency, document_no, issued_at')
+    .select(
+      'id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date'
+    )
     .eq('id', documentId)
     .maybeSingle()
 
@@ -107,16 +169,21 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
   const branding = await loadOrgBranding(supabase as any, orgId)
 
-  let customerName = ''
-  if ((doc as any).customer_id) {
-    const { data: customer, error: cErr } = await supabase
+  const effectiveCustomerId =
+    isUuid(override?.customer_id) ? override.customer_id : (doc as any).customer_id
+
+  let customer: any = null
+  if (effectiveCustomerId) {
+    const { data: customerData, error: cErr } = await supabase
       .from('customers')
-      .select('name')
-      .eq('id', (doc as any).customer_id)
+      .select('name, postal_code, address1, address2, email, phone')
+      .eq('id', effectiveCustomerId)
       .eq('org_id', orgId)
       .maybeSingle()
 
-    if (!cErr) customerName = String((customer as any)?.name ?? '')
+    if (!cErr) {
+      customer = customerData ?? null
+    }
   }
 
   const { data: items, error: itemsErr } = await supabase
@@ -137,33 +204,110 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     )
   }
 
-  const rows = (items ?? []).map((it: any) => {
-    const qty = num(it.quantity)
-    const unit = num(it.unit_price_amount)
+  const docForViewModel = {
+    ...(doc as any),
+    customer_id: effectiveCustomerId ?? null,
+    customer_name:
+      override?.customer_name !== undefined
+        ? override.customer_name
+        : (doc as any).customer_name,
+    customer_honorific:
+      override?.customer_honorific !== undefined
+        ? override.customer_honorific
+        : (doc as any).customer_honorific,
+    title:
+      override?.title !== undefined
+        ? override.title
+        : (doc as any).title,
+    notes:
+      override?.notes !== undefined
+        ? override.notes
+        : (doc as any).notes,
+    due_date:
+      override?.due_date !== undefined
+        ? override.due_date
+        : (doc as any).due_date,
+  }
 
-    const dbLineRaw = it.line_subtotal_amount
-    const line = dbLineRaw == null ? qty * unit : num(dbLineRaw)
+  const itemsForViewModel =
+    Array.isArray(override?.items)
+      ? override.items
+      : (items ?? [])
 
-    return { description: it.description ?? '', qty, unit, line }
+  const previewHashInput = {
+    doc: {
+      id: documentId,
+      doc_type: String((docForViewModel as any).doc_type ?? ''),
+      customer_id: (docForViewModel as any).customer_id ?? null,
+      customer_name: nonEmptyString((docForViewModel as any).customer_name),
+      customer_honorific: nonEmptyString((docForViewModel as any).customer_honorific),
+      currency: nonEmptyString((docForViewModel as any).currency),
+      document_no: nonEmptyString((docForViewModel as any).document_no),
+      issued_at: nonEmptyString((docForViewModel as any).issued_at),
+      title: nonEmptyString((docForViewModel as any).title),
+      notes: String((docForViewModel as any).notes ?? ''),
+      due_date: nonEmptyString((docForViewModel as any).due_date),
+    },
+    customer: customer
+      ? {
+          name: nonEmptyString(customer.name),
+          postal_code: nonEmptyString(customer.postal_code),
+          address1: nonEmptyString(customer.address1),
+          address2: nonEmptyString(customer.address2),
+          email: nonEmptyString(customer.email),
+          phone: nonEmptyString(customer.phone),
+        }
+      : null,
+    items: (itemsForViewModel ?? []).map((it: any, idx: number) => ({
+      position: Number(it?.position ?? idx + 1),
+      description: String(it?.description ?? ''),
+      quantity: Number(it?.quantity ?? 0),
+      unit_price_amount: Number(it?.unit_price_amount ?? 0),
+      line_subtotal_amount:
+        it?.line_subtotal_amount != null
+          ? Number(it.line_subtotal_amount ?? 0)
+          : Number(it?.quantity ?? 0) * Number(it?.unit_price_amount ?? 0),
+    })),
+    branding: {
+      brandColor: branding.brandColor,
+      templateKey: branding.templateKey,
+      footerText: branding.footerText,
+      logoDataUri: branding.logoDataUri,
+      issuerName: branding.issuerName,
+      issuerPostalCode: branding.issuerPostalCode,
+      issuerAddress1: branding.issuerAddress1,
+      issuerAddress2: branding.issuerAddress2,
+      issuerEmail: branding.issuerEmail,
+      issuerPhone: branding.issuerPhone,
+      issuerFax: branding.issuerFax,
+    },
+  }
+
+  const previewHash = computePreviewHash(previewHashInput)
+  const cacheKey = `${documentId}:${previewHash}`
+
+  prunePreviewCache()
+
+  const cachedPdf = getCachedPreviewPdf(cacheKey)
+  if (cachedPdf) {
+    return respondPdf(cachedPdf)
+  }
+
+  const viewModel = buildInvoiceViewModel({
+    doc: docForViewModel,
+    customer: customer as any,
+    items: itemsForViewModel as any[],
+    branding,
   })
 
-  const subtotal = rows.reduce((a, r) => a + num(r.line), 0)
-  const currency = String((doc as any).currency ?? 'JPY')
-  const totals = calcTotals(subtotal, currency)
-
   const html = buildInvoiceHtml({
-    title: 'INVOICE',
-    documentNo: String((doc as any).document_no ?? (doc as any).id),
-    issuedAt: String((doc as any).issued_at ?? ''),
-    customerName,
-    currency,
-    rows,
-    totals,
-    branding,
+    ...viewModel,
+    fontCss: getPdfFontCss(),
   })
 
   try {
     const pdf = await renderPdfFromHtml(html)
+    setCachedPreviewPdf(cacheKey, pdf as Uint8Array)
     return respondPdf(pdf as any)
   } catch (e: any) {
     console.error('[pdf/preview] render failed', e)
@@ -179,4 +323,12 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       500
     )
   }
+}
+
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  return handlePreview(req, ctx, 'GET')
+}
+
+export async function POST(req: NextRequest, ctx: RouteContext) {
+  return handlePreview(req, ctx, 'POST')
 }

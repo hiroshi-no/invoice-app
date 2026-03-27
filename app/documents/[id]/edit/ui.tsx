@@ -16,129 +16,158 @@ const uuidRe =
 
 const isUuid = (v: any) => typeof v === 'string' && uuidRe.test(v)
 
+function num(v: any) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
 export default function EditItemsForm({
   documentId,
   initialItems,
+  onItemsChange,
 }: {
   documentId: string
   initialItems: Item[]
+  onItemsChange?: (items: Item[]) => void
 }) {
   const router = useRouter()
 
-  // ✅ documents/<id> 側で “未保存” を検知するためのキー
   const DIRTY_KEY = useMemo(() => `invoice:doc:${documentId}:items_dirty`, [documentId])
-
- // ✅ “最後に保存されたitems” のハッシュ（DocumentActions が送る）
   const HASH_KEY = useMemo(() => `invoice:doc:${documentId}:items_hash`, [documentId])
- 
 
-  const [items, setItems] = useState<Item[]>(
-    (initialItems ?? []).map((it, idx) => ({
+  const normalizeIncomingItems = (list: Item[]) =>
+    (list ?? []).map((it, idx) => ({
       ...it,
       position: it.position ?? idx + 1,
       description: it.description ?? '',
       quantity: Number(it.quantity ?? 0),
       unit_price_amount: Number(it.unit_price_amount ?? 0),
     }))
+
+  const normalizeForCompare = (list: Item[]) =>
+    (list ?? []).map((it, idx) => ({
+      id: it.id,
+      position: idx + 1,
+      description: String(it.description ?? ''),
+      quantity: Number(it.quantity ?? 0),
+      unit_price_amount: Number(it.unit_price_amount ?? 0),
+    }))
+
+  const initialNormalizedItems = useMemo(
+    () => normalizeIncomingItems(initialItems ?? []),
+    [initialItems]
   )
+
+  const initialBaseState = useMemo(
+    () => JSON.stringify(normalizeForCompare(initialNormalizedItems)),
+    [initialNormalizedItems]
+  )
+
+  const [items, setItems] = useState<Item[]>(initialNormalizedItems)
   const [deleteIds, setDeleteIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
-  // 比較用に「必要なフィールドだけ」にして順番も含めて比較する
-  const normalizeForCompare = (list: Item[]) =>
-   (list ?? []).map((it, idx) => ({
-     id: it.id,
-     position: idx + 1, // ✅ 常に並び順で決める（ここ重要）
-     description: String(it.description ?? ''),
-     quantity: Number(it.quantity ?? 0),
-     unit_price_amount: Number(it.unit_price_amount ?? 0),
-   }))
+  const baseRef = useRef<string>(initialBaseState)
+  const dirtyRef = useRef(false)
+  const didMountRef = useRef(false)
 
+  const normalizeForHash = (list: Item[]) =>
+    (list ?? [])
+      .map((it, idx) => {
+        const id = String(it.id ?? '')
 
-  // 初期スナップショット（未保存判定の基準）
-  const baseRef = useRef<string>('')
+        const rawPos = Number((it as any).position)
+        const position = Number.isFinite(rawPos) && rawPos > 0 ? rawPos : idx + 1
 
-// ✅ server と同じ key / 正規化に合わせる
-const normalizeForHash = (list: Item[]) =>
-  (list ?? [])
-    .map((it, idx) => {
-      const id = String(it.id ?? '')
+        const desc = String(it.description ?? '').trim()
 
-      // ✅ 修正：position は「1以上」だけ有効。0/NaN/null は idx+1 にフォールバック
-      const rawPos = Number((it as any).position)
-      const position = Number.isFinite(rawPos) && rawPos > 0 ? rawPos : (idx + 1)
+        const qn = Number(it.quantity ?? 0)
+        const qty = Number.isFinite(qn) ? (Math.round(qn * 100) / 100).toFixed(2) : '0.00'
 
-      const desc = String(it.description ?? '').trim()
-
-      const qn = Number(it.quantity ?? 0)
-      const qty = Number.isFinite(qn) ? (Math.round(qn * 100) / 100).toFixed(2) : '0.00'
-
-      // ✅ server の normalizeIntStr と同等（BigInt優先）
-      const unitRaw = String(it.unit_price_amount ?? '').trim()
-      let unit = '0'
-      if (/^-?\d+$/.test(unitRaw)) {
-        try {
-          unit = BigInt(unitRaw).toString()
-        } catch {
+        const unitRaw = String(it.unit_price_amount ?? '').trim()
+        let unit = '0'
+        if (/^-?\d+$/.test(unitRaw)) {
+          try {
+            unit = BigInt(unitRaw).toString()
+          } catch {
+            const un = Number(unitRaw)
+            unit = Number.isFinite(un) ? String(Math.trunc(un)) : '0'
+          }
+        } else {
           const un = Number(unitRaw)
           unit = Number.isFinite(un) ? String(Math.trunc(un)) : '0'
         }
-      } else {
-        const un = Number(unitRaw)
-        unit = Number.isFinite(un) ? String(Math.trunc(un)) : '0'
-      }
 
-      // ✅ server と同じキー順（id, position, desc, qty, unit）
-      return { id, position, desc, qty, unit }
-    })
-    .sort(
-  (
-    a: { id: string; position: number },
-    b: { id: string; position: number }
-  ) => (a.position - b.position) || a.id.localeCompare(b.id)
-)
+        return { id, position, desc, qty, unit }
+      })
+      .sort(
+        (
+          a: { id: string; position: number },
+          b: { id: string; position: number }
+        ) => (a.position - b.position) || a.id.localeCompare(b.id)
+      )
 
-async function sha256Hex(text: string) {
-  const enc = new TextEncoder()
-  const buf = await crypto.subtle.digest('SHA-256', enc.encode(text))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function computeItemsHash(list: Item[]) {
-  const norm = normalizeForHash(list)
-  return sha256Hex(JSON.stringify(norm))
-}
-
-  // 最新dirtyをイベントで参照するためのref
-  const dirtyRef = useRef(false)
-
-  // 初回だけ初期値を固定
-useEffect(() => {
-  if (!baseRef.current) {
-    // 初期状態＝DB状態として base を固定
-    baseRef.current = JSON.stringify(normalizeForCompare(items))
-
-    // ✅ 初期状態の items_hash を保存（DocumentActions 用）
-   ;(async () => {
-     if (typeof window === 'undefined') return
-     try {
-       const h = await computeItemsHash(items)
-       localStorage.setItem(HASH_KEY, h)
-     } catch {}
-   })()
+  async function sha256Hex(text: string) {
+    const enc = new TextEncoder()
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(text))
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('')
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [])
 
-  // 現在の状態と比較して dirty を算出
+  async function computeItemsHash(list: Item[]) {
+    const norm = normalizeForHash(list)
+    return sha256Hex(JSON.stringify(norm))
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    ;(async () => {
+      try {
+        const h = await computeItemsHash(items)
+        localStorage.setItem(HASH_KEY, h)
+      } catch {}
+    })()
+  }, [HASH_KEY]) // 初回のみ相当
+
   const dirty = useMemo(() => {
     const now = JSON.stringify(normalizeForCompare(items))
     return baseRef.current !== '' && now !== baseRef.current
   }, [items])
 
-  // ✅ dirty => localStorage に反映（保存完了で自動的に消える）
+  useEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true
+      return
+    }
+
+    if (dirtyRef.current) return
+
+    setItems(initialNormalizedItems)
+    setDeleteIds([])
+    setErr(null)
+    setOk(null)
+    baseRef.current = initialBaseState
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(DIRTY_KEY)
+      } catch {}
+
+      ;(async () => {
+        try {
+          const h = await computeItemsHash(initialNormalizedItems)
+          localStorage.setItem(HASH_KEY, h)
+        } catch {}
+      })()
+    }
+  }, [initialNormalizedItems, initialBaseState, DIRTY_KEY, HASH_KEY])
+
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -147,16 +176,8 @@ useEffect(() => {
     } else {
       localStorage.removeItem(DIRTY_KEY)
     }
-
   }, [dirty, DIRTY_KEY])
 
-
-  // refに同期
-  useEffect(() => {
-    dirtyRef.current = dirty
-  }, [dirty])
-
-  // タブ閉じ/更新で警告
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return
@@ -168,9 +189,12 @@ useEffect(() => {
   }, [])
 
   const normalized = useMemo(() => {
-    // position を常に 1..N に振り直す（表示順＝position）
     return items.map((it, idx) => ({ ...it, position: idx + 1 }))
   }, [items])
+
+  useEffect(() => {
+    onItemsChange?.(normalized)
+  }, [normalized, onItemsChange])
 
   const addRow = () => {
     setOk(null)
@@ -186,15 +210,17 @@ useEffect(() => {
     ])
   }
 
- const removeRow = (index: number) => {
-  setItems((prev) => {
-    const target = prev[index]
-    if (target?.id && isUuid(target.id)) {
-      setDeleteIds((d) => [...d, target.id!]) // ✅ 既存uuidだけ積む
-    }
-    return prev.filter((_, i) => i !== index)
-  })
-}
+  const removeRow = (index: number) => {
+    setOk(null)
+    setErr(null)
+    setItems((prev) => {
+      const target = prev[index]
+      if (target?.id && isUuid(target.id)) {
+        setDeleteIds((d) => [...d, target.id!])
+      }
+      return prev.filter((_, i) => i !== index)
+    })
+  }
 
   const moveRow = (from: number, to: number) => {
     setOk(null)
@@ -223,199 +249,315 @@ useEffect(() => {
     })
   }
 
-const save = async (): Promise<boolean> => {
-  setErr(null)
-  setOk(null)
-  setBusy(true)
+  const save = async (): Promise<boolean> => {
+    setErr(null)
+    setOk(null)
+    setBusy(true)
 
-  try {
-    const payload = {
-      items: items.map((it) => ({
-        ...(isUuid(it.id) ? { id: it.id } : {}),
-        description: it.description ?? '',
-        quantity: Number(it.quantity ?? 0),
-        unit_price_amount: Number(it.unit_price_amount ?? 0),
-      })),
-      deleteIds: (deleteIds ?? []).filter(isUuid),
-    }
+    try {
+      const payload = {
+        items: items.map((it) => ({
+          ...(isUuid(it.id) ? { id: it.id } : {}),
+          description: it.description ?? '',
+          quantity: Number(it.quantity ?? 0),
+          unit_price_amount: Number(it.unit_price_amount ?? 0),
+        })),
+        deleteIds: (deleteIds ?? []).filter(isUuid),
+      }
 
-    const res = await fetch(`/api/documents/${documentId}/items`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    })
+      const res = await fetch(`/api/documents/${documentId}/items`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      })
 
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      setErr(`HTTP ${res.status}: ${json.error ?? 'error'}`)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(`HTTP ${res.status}: ${json.error ?? 'error'}`)
+        return false
+      }
+
+      const newItems = (json.items ?? [])
+        .map((it: any): Item => ({
+          id: it.id,
+          position: Number(it.position ?? 0),
+          description: it.description ?? '',
+          quantity: Number(it.quantity ?? 0),
+          unit_price_amount: Number(it.unit_price_amount ?? 0),
+        }))
+        .sort(
+          (
+            a: { position?: number | null },
+            b: { position?: number | null }
+          ) => (a.position ?? 0) - (b.position ?? 0)
+        )
+
+      setItems(newItems)
+      setDeleteIds([])
+      setOk('明細を保存しました')
+
+      baseRef.current = JSON.stringify(normalizeForCompare(newItems))
+
+      try {
+        localStorage.removeItem(DIRTY_KEY)
+      } catch {}
+
+      try {
+        const h = await computeItemsHash(newItems)
+        localStorage.setItem(HASH_KEY, h)
+      } catch {}
+
+      router.refresh()
+      return true
+    } catch (e: any) {
+      setErr(e?.message ?? String(e))
       return false
+    } finally {
+      setBusy(false)
     }
-
-const newItems = (json.items ?? [])
-  .map((it: any): Item => ({
-    id: it.id,
-    position: Number(it.position ?? 0),
-    description: it.description ?? '',
-    quantity: Number(it.quantity ?? 0),
-    unit_price_amount: Number(it.unit_price_amount ?? 0),
-  }))
-  .sort(
-  (
-    a: { position?: number | null },
-    b: { position?: number | null }
-  ) => (a.position ?? 0) - (b.position ?? 0)
-)
-
-setItems(newItems)
-setDeleteIds([])
-setOk('保存しました')
-
-   baseRef.current = JSON.stringify(normalizeForCompare(newItems))
- try { localStorage.removeItem(DIRTY_KEY) } catch {}
-
- try {
-   const h = await computeItemsHash(newItems)
-   localStorage.setItem(HASH_KEY, h)
- } catch {}
-
- return true
-
-  } catch (e: any) {
-    setErr(e?.message ?? String(e))
-    return false
-  } finally {
-    setBusy(false)
   }
-}
-
-const saveAndBack = async () => {
-  if (!dirtyRef.current) {
-    router.push('/documents/' + documentId)
-    return
-  }
-  const ok = await save()
-  if (ok) router.push('/documents/' + documentId)
-}
-
-const discardAndBack = () => {
-  const ok = confirm('保存していない変更を破棄して戻りますか？')
-  if (!ok) return
-  try { localStorage.removeItem(DIRTY_KEY) } catch {}
-  router.push('/documents/' + documentId)
-}
-
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h2>Edit Items</h2>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-  <button type="button" onClick={saveAndBack} disabled={busy} style={btn}>
-    保存して戻る
-  </button>
-  <button type="button" onClick={discardAndBack} disabled={busy} style={btn}>
-    破棄して戻る
-  </button>
-</div>
+      <div style={{ marginBottom: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>明細編集</h2>
+        <div style={{ fontSize: 12, color: '#666', marginTop: 4, lineHeight: 1.6 }}>
+          品目・数量・単価を入力します。保存するとPDF保存や発行に反映されます。
+        </div>
       </div>
 
-      {dirty && <p style={{ color: '#b45309' }}>未保存の変更があります</p>}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" onClick={addRow} disabled={busy} style={btnPrimary}>
+            ＋ 行を追加
+          </button>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button type="button" onClick={addRow} disabled={busy} style={btn}>
-          行追加
-        </button>
-        <button type="button" onClick={save} disabled={busy} style={btn}>
-          {busy ? '保存中…' : '保存'}
-        </button>
-      </div>
+          <button type="button" onClick={save} disabled={busy} style={btn}>
+            {busy ? '保存中…' : '明細を保存'}
+          </button>
 
-      {err && <p style={{ color: 'crimson' }}>{err}</p>}
-      {ok && <p style={{ color: 'green' }}>{ok}</p>}
-
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={th}>#</th>
-            <th style={th}>Description</th>
-            <th style={{ ...th, textAlign: 'right' }}>Qty</th>
-            <th style={{ ...th, textAlign: 'right' }}>Unit</th>
-            <th style={th}>Controls</th>
-            <th style={th}></th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {normalized.map((it, idx) => (
-            <tr key={it.id ?? `new-${idx}`}>
-              <td style={td}>{it.position}</td>
-
-              <td style={td}>
-                <input
-                  value={it.description ?? ''}
-                  onChange={(e) => updateField(idx, 'description', e.target.value)}
-                  style={input}
-                />
-              </td>
-
-              <td style={{ ...td, textAlign: 'right' }}>
-                <input
-                  type="number"
-                  value={it.quantity ?? 0}
-                  onChange={(e) => updateField(idx, 'quantity', e.target.value)}
-                  style={{ ...input, textAlign: 'right', width: 100 }}
-                />
-              </td>
-
-              <td style={{ ...td, textAlign: 'right' }}>
-                <input
-                  type="number"
-                  value={it.unit_price_amount ?? 0}
-                  onChange={(e) => updateField(idx, 'unit_price_amount', e.target.value)}
-                  style={{ ...input, textAlign: 'right', width: 140 }}
-                />
-              </td>
-
-              <td style={td}>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button type="button" onClick={() => moveUp(idx)} disabled={busy || idx === 0} style={btnSmall}>
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveDown(idx)}
-                    disabled={busy || idx === normalized.length - 1}
-                    style={btnSmall}
-                  >
-                    ↓
-                  </button>
-                </div>
-              </td>
-
-              <td style={td}>
-                <button type="button" onClick={() => removeRow(idx)} disabled={busy} style={btnSmall}>
-                  削除
-                </button>
-              </td>
-            </tr>
-          ))}
-
-          {normalized.length === 0 && (
-            <tr>
-              <td style={td} colSpan={6}>
-                No items
-              </td>
-            </tr>
+          {dirty && !busy && (
+            <span
+              style={{
+                color: '#b45309',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              未保存の変更があります
+            </span>
           )}
-        </tbody>
-      </table>
+        </div>
+
+        <div
+          style={{
+            fontSize: 12,
+            color: '#6b7280',
+            background: '#f8fafc',
+            border: '1px solid #e5e7eb',
+            borderRadius: 999,
+            padding: '4px 10px',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {normalized.length}件
+        </div>
+      </div>
+
+      {err && <p style={{ color: 'crimson', marginTop: 0 }}>{err}</p>}
+      {ok && <p style={{ color: 'green', marginTop: 0 }}>{ok}</p>}
+
+      {normalized.length === 0 ? (
+        <div
+          style={{
+            border: '1px dashed #cbd5e1',
+            borderRadius: 12,
+            background: '#f8fafc',
+            padding: 18,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#111827',
+              marginBottom: 6,
+            }}
+          >
+            明細がまだありません
+          </div>
+
+          <div
+            style={{
+              fontSize: 12,
+              color: '#6b7280',
+              lineHeight: 1.7,
+              marginBottom: 12,
+            }}
+          >
+            「＋ 行を追加」から最初の明細を作成してください。
+            <br />
+            例）デザイン制作 / 1 / 50,000
+          </div>
+
+          <button type="button" onClick={addRow} disabled={busy} style={btnPrimary}>
+            ＋ 最初の行を追加
+          </button>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
+            <thead>
+              <tr>
+                <th style={th}>行</th>
+                <th style={th}>内容</th>
+                <th style={{ ...th, textAlign: 'right' }}>数量</th>
+                <th style={{ ...th, textAlign: 'right' }}>単価</th>
+                <th style={{ ...th, textAlign: 'right' }}>小計</th>
+                <th style={th}>並び替え</th>
+                <th style={th}>削除</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {normalized.map((it, idx) => {
+                const lineTotal = num(it.quantity) * num(it.unit_price_amount)
+
+                return (
+                  <tr key={it.id ?? `new-${idx}`}>
+                    <td style={td}>{it.position}</td>
+
+                    <td style={td}>
+                      <input
+                        value={it.description ?? ''}
+                        onChange={(e) => updateField(idx, 'description', e.target.value)}
+                        style={input}
+                        placeholder="内容を入力"
+                      />
+                    </td>
+
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        value={it.quantity ?? 0}
+                        onChange={(e) => updateField(idx, 'quantity', e.target.value)}
+                        style={{ ...input, textAlign: 'right', width: 100 }}
+                        placeholder="0"
+                      />
+                    </td>
+
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        value={it.unit_price_amount ?? 0}
+                        onChange={(e) => updateField(idx, 'unit_price_amount', e.target.value)}
+                        style={{ ...input, textAlign: 'right', width: 140 }}
+                        placeholder="0"
+                      />
+                    </td>
+
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                      {lineTotal.toLocaleString()}
+                    </td>
+
+                    <td style={td}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button type="button" onClick={() => moveUp(idx)} disabled={busy || idx === 0} style={btnSmall}>
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveDown(idx)}
+                          disabled={busy || idx === normalized.length - 1}
+                          style={btnSmall}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </td>
+
+                    <td style={td}>
+                      <button type="button" onClick={() => removeRow(idx)} disabled={busy} style={btnSmallDanger}>
+                        削除
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
 
-const btn = { padding: '8px 12px', border: '1px solid #ccc', borderRadius: 6, background: '#fff' } as const
-const btnSmall = { padding: '6px 10px', border: '1px solid #ccc', borderRadius: 6, background: '#fff' } as const
-const th = { textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 } as const
-const td = { borderBottom: '1px solid #eee', padding: 8, verticalAlign: 'top' } as const
-const input = { width: '100%', padding: 8, border: '1px solid #ccc', borderRadius: 6 } as const
+const btn: React.CSSProperties = {
+  padding: '8px 12px',
+  border: '1px solid #ccc',
+  borderRadius: 8,
+  background: '#fff',
+  fontSize: 14,
+}
+
+const btnPrimary: React.CSSProperties = {
+  padding: '8px 12px',
+  border: '1px solid #111827',
+  borderRadius: 8,
+  background: '#111827',
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: 700,
+}
+
+const btnSmall: React.CSSProperties = {
+  padding: '6px 10px',
+  border: '1px solid #ccc',
+  borderRadius: 6,
+  background: '#fff',
+  fontSize: 13,
+}
+
+const btnSmallDanger: React.CSSProperties = {
+  padding: '6px 10px',
+  border: '1px solid #fecaca',
+  borderRadius: 6,
+  background: '#fff5f5',
+  color: '#b91c1c',
+  fontSize: 13,
+}
+
+const th: React.CSSProperties = {
+  textAlign: 'left',
+  borderBottom: '1px solid #ddd',
+  padding: 8,
+  fontSize: 13,
+  color: '#374151',
+  background: '#fafafa',
+}
+
+const td: React.CSSProperties = {
+  borderBottom: '1px solid #eee',
+  padding: 8,
+  verticalAlign: 'top',
+}
+
+const input: React.CSSProperties = {
+  width: '100%',
+  padding: 8,
+  border: '1px solid #ccc',
+  borderRadius: 6,
+  boxSizing: 'border-box',
+  background: '#fff',
+}

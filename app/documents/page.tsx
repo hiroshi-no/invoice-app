@@ -34,6 +34,22 @@ async function createSupabase() {
   })
 }
 
+function labelDocType(v: any) {
+  const s = String(v ?? '').toLowerCase()
+  if (s === 'invoice') return '請求書'
+  if (s === 'quote' || s === 'quotation') return '見積書'
+  return String(v ?? '-')
+}
+
+function labelStatus(v: any) {
+  const s = String(v ?? '').toLowerCase()
+  if (s === 'draft') return '下書き'
+  if (s === 'issued') return '発行済み'
+  if (s === 'paid') return '支払済み'
+  if (s === 'cancelled') return '取消'
+  return String(v ?? '-')
+}
+
 export default async function DocumentsPage() {
   const supabase = await createSupabase()
 
@@ -41,9 +57,9 @@ export default async function DocumentsPage() {
   if (userErr || !userData.user) {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
-        <h1>Documents</h1>
+        <h1>書類一覧</h1>
         <p>
-          Not logged in. <Link href="/login">Go to login</Link>
+          ログインが必要です。<Link href="/login">ログインへ</Link>
         </p>
       </div>
     )
@@ -51,23 +67,19 @@ export default async function DocumentsPage() {
 
   let orgId = ''
   try {
-    const result = await getCurrentOrgIdForUser(supabase as any, userData.user.id)
+    const currentOrgId = await getCurrentOrgIdForUser(supabase as any, userData.user.id)
 
-    if (result.error) {
-      throw result.error
-    }
-
-    orgId = String(result.orgId ?? '')
+    orgId = String(currentOrgId ?? '')
     if (!UUID_RE.test(orgId)) {
       throw new Error('current_org_id invalid')
     }
   } catch (e: any) {
     return (
       <div style={{ maxWidth: 860, margin: '40px auto', fontFamily: 'sans-serif' }}>
-        <h1>Documents</h1>
-        <p style={{ color: 'crimson' }}>Error: {e?.message ?? 'org not found'}</p>
+        <h1>書類一覧</h1>
+        <p style={{ color: 'crimson' }}>エラー: {e?.message ?? 'org not found'}</p>
         <p>
-          <Link href="/dashboard/monthly">Back</Link>
+          <Link href="/dashboard/monthly">戻る</Link>
         </p>
       </div>
     )
@@ -82,43 +94,76 @@ export default async function DocumentsPage() {
 
   return (
     <div style={{ maxWidth: 980, margin: '40px auto', fontFamily: 'sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Documents</h1>
-        <Link href="/debug">debug</Link>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <h1>書類一覧</h1>
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Link
+            href="/documents/new?type=invoice"
+            style={{
+              display: 'inline-block',
+              padding: '8px 12px',
+              border: '1px solid #ddd',
+              borderRadius: 10,
+              textDecoration: 'none',
+              color: '#111',
+              background: '#fff',
+            }}
+          >
+            新規請求書
+          </Link>
+
+          <Link
+            href="/documents/new?type=quotation"
+            style={{
+              display: 'inline-block',
+              padding: '8px 12px',
+              border: '1px solid #ddd',
+              borderRadius: 10,
+              textDecoration: 'none',
+              color: '#111',
+              background: '#fff',
+            }}
+          >
+            新規見積書
+          </Link>
+
+          <Link href="/debug">デバッグ</Link>
+        </div>
       </div>
 
-      {error && <p style={{ color: 'crimson' }}>Error: {error.message}</p>}
+      {error && <p style={{ color: 'crimson' }}>エラー: {error.message}</p>}
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={th}>Type</th>
-            <th style={th}>No</th>
-            <th style={th}>Status</th>
-            <th style={th}>Issued</th>
-            <th style={th}>Total</th>
-            <th style={th}>Open</th>
+            <th style={th}>種別</th>
+            <th style={th}>番号</th>
+            <th style={th}>状態</th>
+            <th style={th}>発行日</th>
+            <th style={th}>合計</th>
+            <th style={th}>詳細</th>
           </tr>
         </thead>
         <tbody>
           {(docs ?? []).map((d: any) => (
             <tr key={d.id}>
-              <td style={td}>{d.doc_type}</td>
+              <td style={td}>{labelDocType(d.doc_type)}</td>
               <td style={td}>{d.document_no ?? '-'}</td>
-              <td style={td}>{d.status}</td>
+              <td style={td}>{labelStatus(d.status)}</td>
               <td style={td}>{d.issued_at ?? '-'}</td>
               <td style={td}>
                 {(d.total_amount ?? 0).toLocaleString()} {d.currency ?? 'JPY'}
               </td>
               <td style={td}>
-                <Link href={`/documents/${d.id}`}>Open</Link>
+                <Link href={`/documents/${d.id}`}>開く</Link>
               </td>
             </tr>
           ))}
           {(docs ?? []).length === 0 && (
             <tr>
               <td style={td} colSpan={6}>
-                No documents yet.
+                書類がまだありません。
               </td>
             </tr>
           )}

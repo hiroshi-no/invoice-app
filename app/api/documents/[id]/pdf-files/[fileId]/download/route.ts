@@ -44,6 +44,51 @@ function respondJson(cookiesToSet: any[], body: any, init?: ResponseInit) {
   return res
 }
 
+function sanitizeFileNamePart(value?: string | null) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+
+  return raw
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function getDocTypeLabel(docType?: string | null) {
+  const v = String(docType ?? '').trim().toLowerCase()
+
+  if (v === 'invoice') return '請求書'
+  if (v === 'quotation' || v === 'quote' || v === 'estimate') return '見積書'
+  return '書類'
+}
+
+function getDefaultDocumentNo(docType?: string | null) {
+  const v = String(docType ?? '').trim().toLowerCase()
+
+  if (v === 'invoice') return 'invoice'
+  if (v === 'quotation' || v === 'quote' || v === 'estimate') return 'quotation'
+  return 'document'
+}
+
+function buildPdfFileName(params: {
+  docType?: string | null
+  documentNo?: string | null
+  version?: number | null
+}) {
+  const label = sanitizeFileNamePart(getDocTypeLabel(params.docType))
+  const no =
+    sanitizeFileNamePart(params.documentNo) ||
+    getDefaultDocumentNo(params.docType)
+
+  const version =
+    Number.isFinite(Number(params.version)) && Number(params.version) > 0
+      ? Number(params.version)
+      : 1
+
+  return `${label}_${no}_v${version}.pdf`
+}
+
 export async function GET(req: NextRequest, ctx: RouteContext) {
   const { supabase, cookiesToSet } = createSupabase(req)
 
@@ -51,19 +96,25 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const documentId = String(params?.id ?? '')
   const fileId = String(params?.fileId ?? '')
 
-  if (!UUID_RE.test(documentId)) return respondJson(cookiesToSet, { error: 'Invalid document id' }, { status: 400 })
-  if (!UUID_RE.test(fileId)) return respondJson(cookiesToSet, { error: 'Invalid file id' }, { status: 400 })
-
-  // auth
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return respondJson(cookiesToSet, { error: userErr?.message ?? 'Not authenticated' }, { status: 401 })
+  if (!UUID_RE.test(documentId)) {
+    return respondJson(cookiesToSet, { error: 'Invalid document id' }, { status: 400 })
+  }
+  if (!UUID_RE.test(fileId)) {
+    return respondJson(cookiesToSet, { error: 'Invalid file id' }, { status: 400 })
   }
 
-  // doc → orgId確定（RLSで見えない場合も 404）
+  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !userData.user) {
+    return respondJson(
+      cookiesToSet,
+      { error: userErr?.message ?? 'Not authenticated' },
+      { status: 401 }
+    )
+  }
+
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, org_id')
+    .select('id, org_id, doc_type, document_no')
     .eq('id', documentId)
     .maybeSingle()
 
@@ -71,12 +122,13 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   if (!doc) return respondJson(cookiesToSet, { error: 'document_not_found' }, { status: 404 })
 
   const orgId = String((doc as any).org_id ?? '')
-  if (!UUID_RE.test(orgId)) return respondJson(cookiesToSet, { error: 'org_id invalid' }, { status: 500 })
+  if (!UUID_RE.test(orgId)) {
+    return respondJson(cookiesToSet, { error: 'org_id invalid' }, { status: 500 })
+  }
 
-  // file（doc+org で絞る）
   const { data: row, error: fErr } = await supabase
     .from('document_files')
-    .select('id, document_id, org_id, path')
+    .select('id, document_id, org_id, path, file_name, version')
     .eq('id', fileId)
     .eq('document_id', documentId)
     .eq('org_id', orgId)
@@ -88,21 +140,60 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const path = String((row as any).path ?? '')
   if (!path) return respondJson(cookiesToSet, { error: 'file path missing' }, { status: 500 })
 
-  // ★重要：pdf/save は documents バケットに upload しているので download も documents 固定
   const bucket = 'documents'
 
   try {
     const service = createServiceSupabase()
-    const { data, error } = await service.storage.from(bucket).createSignedUrl(path, 60)
-    if (error || !data?.signedUrl) {
-      return respondJson(cookiesToSet, { error: error?.message ?? 'createSignedUrl failed' }, { status: 500 })
+
+    const { data, error } = await service.storage.from(bucket).download(path)
+    if (error || !data) {
+      return respondJson(
+        cookiesToSet,
+        { error: error?.message ?? 'storage download failed' },
+        { status: 500 }
+      )
     }
 
-    const res = NextResponse.redirect(data.signedUrl, 302)
-    for (const c of cookiesToSet) res.cookies.set(c.name, c.value, c.options)
-    res.headers.set('Cache-Control', 'no-store')
+    const fallbackFileName = buildPdfFileName({
+     docType: (doc as any).doc_type,
+     documentNo: (doc as any).document_no,
+     version: Number((row as any).version ?? 1),
+    })
+
+    const rawFileName = String((row as any).file_name ?? '').trim()
+    const downloadName = rawFileName || fallbackFileName
+
+    const contentDisposition =
+      `attachment; filename="${encodeURIComponent(downloadName)}"; ` +
+      `filename*=UTF-8''${encodeURIComponent(downloadName)}`
+
+    console.log('[pdf/download] documentId =', documentId)
+    console.log('[pdf/download] fileId =', fileId)
+    console.log('[pdf/download] doc.doc_type =', (doc as any).doc_type)
+    console.log('[pdf/download] doc.document_no =', (doc as any).document_no)
+    console.log('[pdf/download] row.version =', (row as any).version)
+    console.log('[pdf/download] row.file_name =', rawFileName)
+    console.log('[pdf/download] fallbackFileName =', fallbackFileName)
+    console.log('[pdf/download] downloadName =', downloadName)
+    console.log('[pdf/download] Content-Disposition =', contentDisposition)
+
+    const arrayBuffer = await data.arrayBuffer()
+    const res = new NextResponse(arrayBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': contentDisposition,
+        'Cache-Control': 'no-store',
+      },
+    })
+
+    for (const c of cookiesToSet) {
+      res.cookies.set(c.name, c.value, c.options)
+    }
+
     return res
   } catch (e: any) {
+    console.error('[pdf/download] failed:', e)
     return respondJson(cookiesToSet, { error: e?.message ?? 'download failed' }, { status: 500 })
   }
 }

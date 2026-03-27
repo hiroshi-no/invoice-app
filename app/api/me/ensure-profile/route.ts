@@ -1,94 +1,186 @@
+import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-async function handler() {
-  const supabase = await createClient()
+async function getCookieStore() {
+  const c: any = cookies()
+  return typeof c?.then === 'function' ? await c : c
+}
 
-  // auth
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr || !userData.user) {
-    return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
-  }
-  const userId = userData.user.id
+function json(body: any, init?: ResponseInit) {
+  return NextResponse.json(body, init)
+}
 
-  // profiles 既存チェック（※ id列ではなく user_id を使う）
-  const { data: prof, error: pErr } = await supabase
-    .from('profiles')
-    .select('current_org_id')
-    .eq('user_id', userId)
-    .maybeSingle()
+async function createSupabaseUserClient() {
+  const cookieStore = await getCookieStore()
 
-  if (pErr) {
-    return NextResponse.json(
-      { error: 'profiles_select_failed', message: pErr.message },
-      { status: 500 }
-    )
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+  if (!url || !anonKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY')
   }
 
-  if (prof?.current_org_id) {
-    return NextResponse.json({
-      ok: true,
-      existed: true,
-      current_org_id: String(prof.current_org_id),
-    })
-  }
-
-  // 補完：documents から org_id を推定（RLSで見える範囲）
-  const { data: doc, error: dErr } = await supabase
-    .from('documents')
-    .select('org_id, created_at')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (dErr) {
-    return NextResponse.json(
-      { error: 'documents_select_failed', message: dErr.message },
-      { status: 500 }
-    )
-  }
-
-  const orgId = doc?.org_id ? String(doc.org_id) : ''
-  if (!orgId) {
-    return NextResponse.json(
-      {
-        error: 'org_not_found',
-        message:
-          'org_id を特定できません（documentsが0件等）。先に org 作成/参加 or documents 作成が必要です。',
+  return createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll().map((c: any) => ({
+          name: c.name,
+          value: c.value,
+        }))
       },
-      { status: 409 }
-    )
-  }
-
-  // profiles upsert
-  const { data: up, error: uErr } = await supabase
-    .from('profiles')
-    .upsert({ user_id: userId, current_org_id: orgId }, { onConflict: 'user_id' })
-    .select('current_org_id')
-    .single()
-
-  if (uErr) {
-    return NextResponse.json(
-      { error: 'profiles_upsert_failed', message: uErr.message },
-      { status: 500 }
-    )
-  }
-
-  return NextResponse.json({
-    ok: true,
-    existed: false,
-    current_org_id: String(up.current_org_id),
+      setAll(_cookiesToSet) {
+        // この route では auth cookie 更新は不要なので no-op
+      },
+    },
   })
 }
 
-export async function POST() {
-  return handler()
+function createSupabaseAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !serviceRole) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY')
+  }
+
+  return createAdminClient(url, serviceRole, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
 }
 
-// ブラウザで叩きやすいように GET も用意（任意だけど便利）
-export async function GET() {
-  return handler()
+function buildDefaultOrgName(email?: string | null) {
+  const local = String(email ?? '')
+    .split('@')[0]
+    .trim()
+
+  if (!local) return 'マイワークスペース'
+  return `${local} のワークスペース`
+}
+
+async function createOrganization(admin: ReturnType<typeof createSupabaseAdminClient>, user: any) {
+  const orgName = buildDefaultOrgName(user?.email)
+
+  const candidates = [
+    { name: orgName, created_by: user.id },
+    { name: orgName },
+  ]
+
+  let lastError: any = null
+
+  for (const payload of candidates) {
+    const { data, error } = await admin
+      .from('organizations')
+      .insert(payload)
+      .select('id')
+      .single()
+
+    if (!error && data?.id) {
+      return String(data.id)
+    }
+
+    lastError = error
+  }
+
+  throw lastError ?? new Error('Failed to create organization')
+}
+
+export async function POST() {
+  try {
+    const supabase = await createSupabaseUserClient()
+    const admin = createSupabaseAdminClient()
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      return json(
+        {
+          ok: false,
+          error: 'not_authenticated',
+          message: 'ログイン情報を確認できませんでした。',
+        },
+        { status: 401 }
+      )
+    }
+
+    const { data: profile, error: profileError } = await admin
+      .from('profiles')
+      .select('user_id, current_org_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      return json(
+        {
+          ok: false,
+          error: 'profile_read_failed',
+          message: profileError.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    const currentOrgId = String((profile as any)?.current_org_id ?? '')
+
+    if (UUID_RE.test(currentOrgId)) {
+      return json({
+        ok: true,
+        created: false,
+        org_id: currentOrgId,
+      })
+    }
+
+    const orgId = await createOrganization(admin, user)
+
+    const { error: upsertError } = await admin.from('profiles').upsert(
+      {
+        user_id: user.id,
+        current_org_id: orgId,
+      },
+      {
+        onConflict: 'user_id',
+      }
+    )
+
+    if (upsertError) {
+      return json(
+        {
+          ok: false,
+          error: 'profile_upsert_failed',
+          message: upsertError.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    return json({
+      ok: true,
+      created: true,
+      org_id: orgId,
+    })
+  } catch (e: any) {
+    return json(
+      {
+        ok: false,
+        error: 'ensure_profile_failed',
+        message: String(e?.message ?? e ?? 'unknown error'),
+      },
+      { status: 500 }
+    )
+  }
 }

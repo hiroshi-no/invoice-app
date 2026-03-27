@@ -1,6 +1,6 @@
 // app/components/AppHeader.tsx
 import Link from 'next/link'
-import { LogoutButton } from './LogoutButton'   // ← ここだけ変更
+import { LogoutButton } from './LogoutButton'
 
 export default function AppHeader() {
   return (
@@ -18,18 +18,21 @@ export default function AppHeader() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Link href="/" style={{ fontWeight: 700, textDecoration: 'none', color: '#111' }}>
-            Invoice App
+            請求書アプリ
           </Link>
 
           <nav style={{ display: 'flex', gap: 12, fontSize: 14 }}>
-            <Link href="/dashboard" style={{ textDecoration: 'none', color: '#111' }}>
-              Dashboard
-            </Link>
             <Link href="/documents" style={{ textDecoration: 'none', color: '#111' }}>
-              Documents
+              書類
+            </Link>
+            <Link href="/customers" style={{ textDecoration: 'none', color: '#111' }}>
+              顧客
+            </Link>
+            <Link href="/dashboard" style={{ textDecoration: 'none', color: '#111' }}>
+              ダッシュボード
             </Link>
             <Link href="/settings/branding" style={{ textDecoration: 'none', color: '#111' }}>
-              Branding
+              ブランディング
             </Link>
           </nav>
         </div>

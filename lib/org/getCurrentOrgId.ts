@@ -22,7 +22,7 @@ type RequireCurrentOrgErr = {
 
 export type RequireCurrentOrgResult = RequireCurrentOrgOk | RequireCurrentOrgErr
 
-export async function getCurrentOrgIdForUser(
+async function lookupCurrentOrgIdForUser(
   supabase: SupabaseClient<any, any, any>,
   userId: string
 ) {
@@ -33,27 +33,40 @@ export async function getCurrentOrgIdForUser(
     .maybeSingle()
 
   if (error) {
-    return { orgId: null, error }
+    return { orgId: null as string | null, error }
   }
 
   const orgId = String((profile as any)?.current_org_id ?? '')
   if (!UUID_RE.test(orgId)) {
-    return { orgId: null, error: null }
+    return { orgId: null as string | null, error: null }
   }
 
   return { orgId, error: null }
 }
 
-// 互換用: 既存コード向け
+/**
+ * page / server component 向け
+ * - 返り値は string | null
+ * - 呼び出し側は `if (!orgId) ...` で扱える
+ */
+export async function getCurrentOrgIdForUser(
+  supabase: SupabaseClient<any, any, any>,
+  userId: string
+): Promise<string | null> {
+  const { orgId } = await lookupCurrentOrgIdForUser(supabase, userId)
+  return orgId
+}
+
+/**
+ * 互換用
+ * - 旧コード向けに string を返す
+ * - 無ければ throw
+ */
 export async function getCurrentOrgId(
   supabase: SupabaseClient<any, any, any>,
   userId: string
-) {
-  const { orgId, error } = await getCurrentOrgIdForUser(supabase, userId)
-
-  if (error) {
-    throw error
-  }
+): Promise<string> {
+  const orgId = await getCurrentOrgIdForUser(supabase, userId)
 
   if (!orgId) {
     throw new Error('current org not set')
@@ -62,6 +75,11 @@ export async function getCurrentOrgId(
   return orgId
 }
 
+/**
+ * API route 向け
+ * - 認証確認込み
+ * - 詳細な status/body を返す
+ */
 export async function requireCurrentOrgId(
   supabase: SupabaseClient<any, any, any>
 ): Promise<RequireCurrentOrgResult> {
@@ -80,7 +98,7 @@ export async function requireCurrentOrgId(
   }
 
   const userId = userData.user.id
-  const { orgId, error: profileErr } = await getCurrentOrgIdForUser(supabase, userId)
+  const { orgId, error: profileErr } = await lookupCurrentOrgIdForUser(supabase, userId)
 
   if (profileErr) {
     return {

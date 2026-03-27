@@ -1,4 +1,3 @@
-// app/api/documents/[id]/pdf/save/route.ts
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -9,11 +8,12 @@ import { Buffer } from 'node:buffer'
 
 import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { respondJson } from '@/lib/api/response'
-import { calcTotals } from '@/lib/calc'
 import { withDebug } from '@/lib/debug'
 import { computeItemsHashFromDbRows, type DbItemRowForHash } from '@/lib/itemsHash'
 import { loadOrgBranding } from '@/lib/pdf/branding'
 import { buildInvoiceHtml } from '@/lib/pdf/buildInvoiceHtml'
+import { buildInvoiceViewModel } from '@/lib/pdf/buildInvoiceViewModel'
+import { getPdfFontCss } from '@/lib/pdf/fontCss'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
 import { enforceRateLimit } from '@/lib/rateLimit'
 
@@ -24,16 +24,89 @@ type RouteContext =
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+function sanitizeFileNamePart(value?: string | null) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+
+  return raw
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function getDocTypeLabel(docType?: string | null) {
+  const v = String(docType ?? '').trim().toLowerCase()
+
+  if (v === 'invoice') return '請求書'
+  if (v === 'quotation' || v === 'quote' || v === 'estimate') return '見積書'
+  return '書類'
+}
+
+function getDefaultDocumentNo(docType?: string | null) {
+  const v = String(docType ?? '').trim().toLowerCase()
+
+  if (v === 'invoice') return 'invoice'
+  if (v === 'quotation' || v === 'quote' || v === 'estimate') return 'quotation'
+  return 'document'
+}
+
+function buildPdfFileName(params: {
+  docType?: string | null
+  documentNo?: string | null
+  version?: number | null
+}) {
+  const label = sanitizeFileNamePart(getDocTypeLabel(params.docType))
+  const no =
+    sanitizeFileNamePart(params.documentNo) ||
+    getDefaultDocumentNo(params.docType)
+
+  const version =
+    Number.isFinite(Number(params.version)) && Number(params.version) > 0
+      ? Number(params.version)
+      : 1
+
+  return `${label}_${no}_v${version}.pdf`
+}
+
+function getDocTypeStorageLabel(docType?: string | null) {
+  const v = String(docType ?? '').trim().toLowerCase()
+
+  if (v === 'invoice') return 'invoice'
+  if (v === 'quotation' || v === 'quote' || v === 'estimate') return 'quotation'
+  return 'document'
+}
+
+function buildStoragePdfFileName(params: {
+  docType?: string | null
+  documentNo?: string | null
+  version?: number | null
+}) {
+  const label = getDocTypeStorageLabel(params.docType)
+
+  const rawNo =
+    String(params.documentNo ?? '').trim() || getDefaultDocumentNo(params.docType)
+
+  const no =
+    rawNo
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Za-z0-9_.-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'document'
+
+  const version =
+    Number.isFinite(Number(params.version)) && Number(params.version) > 0
+      ? Number(params.version)
+      : 1
+
+  return `${label}_${no}_v${version}.pdf`
+}
+
 function createSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
   return createClient(url, serviceKey, { auth: { persistSession: false } })
-}
-
-function num(v: any) {
-  if (v == null) return 0
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
 }
 
 export async function POST(req: NextRequest, ctx: RouteContext) {
@@ -98,7 +171,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, org_id, customer_id, status, currency, document_no, issued_at')
+    .select('id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date')
     .eq('id', documentId)
     .maybeSingle()
 
@@ -179,53 +252,81 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     )
   }
 
-  let customerName = ''
+  let customer: any = null
   if (doc.customer_id) {
-    const { data: customer, error: cErr } = await supabase
+    const { data: customerData, error: cErr } = await supabase
       .from('customers')
-      .select('name')
+      .select('name, postal_code, address1, address2, email, phone')
       .eq('id', doc.customer_id)
       .eq('org_id', orgId)
       .maybeSingle()
 
-    if (!cErr) customerName = String((customer as any)?.name ?? '')
+    if (!cErr) {
+      customer = customerData ?? null
+    }
   }
-
-  const rowsForPdf = (items ?? []).map((it: any) => {
-    const qty = num(it.quantity)
-    const unit = num(it.unit_price_amount)
-    const dbLineRaw = it.line_subtotal_amount
-    const line = dbLineRaw == null ? qty * unit : num(dbLineRaw)
-    return { description: it.description ?? '', qty, unit, line }
-  })
-
-  const subtotal = rowsForPdf.reduce((a, r) => a + num(r.line), 0)
-  const currency = String(doc.currency ?? 'JPY')
-  const totals = calcTotals(subtotal, currency)
 
   const branding = await loadOrgBranding(supabase as any, orgId)
 
-  const html = buildInvoiceHtml({
-    title: 'INVOICE',
-    documentNo: String(doc.document_no ?? doc.id),
-    issuedAt: String(doc.issued_at ?? ''),
-    customerName,
-    currency,
-    rows: rowsForPdf,
-    totals,
+  const viewModel = buildInvoiceViewModel({
+    doc: doc as any,
+    customer: customer as any,
+    items: (items ?? []) as any[],
     branding,
   })
 
+  const html = buildInvoiceHtml({
+    ...viewModel,
+    fontCss: getPdfFontCss(),
+  })
+
+  const totals = viewModel.totals
   const admin = createSupabaseAdmin()
 
   try {
     const pdf = await renderPdfFromHtml(html)
     const pdfBuf = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf as any)
 
-    const baseNo = String(doc.document_no ?? doc.id).trim()
-    const safeNo = baseNo.replace(/[\\/:*?"<>|]/g, '_')
-    const pdfFileName = `${safeNo}.pdf`
-    const storagePath = `${orgId}/${documentId}/${Date.now()}_${pdfFileName}`
+    const { data: versionRows, error: latestErr } = await supabase
+      .from('document_files')
+      .select('version')
+      .eq('document_id', documentId)
+      .eq('org_id', orgId)
+      .not('version', 'is', null)
+      .limit(200)
+
+    if (latestErr) {
+      return respondErr(
+        'document_file_version_fetch_failed',
+        'PDF保存に失敗しました。時間をおいて再実行してください。',
+        500,
+        { detail: latestErr.message }
+      )
+    }
+
+    const maxVersion = Math.max(
+      0,
+      ...(versionRows ?? []).map((row: any) => {
+        const n = Number(row?.version ?? 0)
+        return Number.isFinite(n) && n > 0 ? n : 0
+      })
+    )
+
+    const nextVersion = maxVersion + 1
+
+     const pdfFileName = buildPdfFileName({
+     docType: doc.doc_type,
+     documentNo: doc.document_no ?? null,
+     version: nextVersion,
+   })
+
+   const storageFileName = buildStoragePdfFileName({
+     docType: doc.doc_type,
+     documentNo: doc.document_no ?? null,
+     version: nextVersion,
+   })
+
+   const storagePath = `${orgId}/${documentId}/${Date.now()}_${storageFileName}`
 
     const { data: up, error: upErr } = await admin.storage
       .from('documents')
@@ -266,9 +367,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
         org_id: orgId,
         document_id: documentId,
         path: storagePath,
+        file_name: pdfFileName,
         created_by: userId,
+        version: nextVersion,
       })
-      .select('id, created_at, path')
+      .select('id, created_at, path, file_name, version')
       .single()
 
     if (insErr || !saved?.id) {
