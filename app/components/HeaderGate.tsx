@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import AppHeader from './AppHeader'
 
@@ -9,12 +9,24 @@ export default function HeaderGate() {
   const router = useRouter()
   const [err, setErr] = useState<string | null>(null)
 
-  const isLogin = pathname === '/login' || pathname.startsWith('/login/')
+  const isPublicPage = useMemo(() => {
+    if (!pathname) return false
+
+    return (
+      pathname === '/login' ||
+      pathname.startsWith('/login/') ||
+      pathname === '/forgot-password' ||
+      pathname.startsWith('/forgot-password/') ||
+      pathname === '/update-password' ||
+      pathname.startsWith('/update-password/')
+    )
+  }, [pathname])
 
   useEffect(() => {
-    if (isLogin) return
+    if (isPublicPage) return
 
     let cancelled = false
+
     ;(async () => {
       setErr(null)
 
@@ -34,19 +46,15 @@ export default function HeaderGate() {
           return
         }
         setErr(`ensure-profile failed: HTTP ${res.status} ${json?.message ?? json?.error ?? ''}`)
-        return
       }
-
-      // 確認用（必要なければ消してOK）
-      console.log('ensure-profile ok', json)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [isLogin, router])
+  }, [isPublicPage, router])
 
-  if (isLogin) return null
+  if (isPublicPage) return null
 
   return (
     <>
