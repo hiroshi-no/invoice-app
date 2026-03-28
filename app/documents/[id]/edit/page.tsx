@@ -184,9 +184,9 @@ export default async function DocumentEditPage({ params }: Props) {
           }}
         >
           <h1 style={{ margin: 0 }}>書類編集</h1>
-          <div style={{ display: 'none' }}>
-            <BackToDocumentLink documentId={documentId} />
-          </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <BackToDocumentLink documentId={documentId} />
+         </div>
         </div>
 
         <div
