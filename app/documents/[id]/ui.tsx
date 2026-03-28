@@ -566,74 +566,83 @@ const finalize = async () => {
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <button
-          type="button"
-          onClick={openPdfPreview}
-          disabled={previewDisabled}
-          style={btnStyle(previewDisabled)}
-        >
-          PDFプレビュー
-        </button>
+  <button
+    type="button"
+    onClick={openPdfPreview}
+    disabled={previewDisabled}
+    style={btnStyle(previewDisabled)}
+  >
+    PDFプレビュー
+  </button>
 
-        <button
-          type="button"
-          onClick={() => router.refresh()}
-          disabled={refreshDisabled}
-          style={btnStyle(refreshDisabled)}
-        >
-          画面更新
-        </button>
+  <button
+    type="button"
+    onClick={() => router.refresh()}
+    disabled={refreshDisabled}
+    style={btnStyle(refreshDisabled)}
+  >
+    画面更新
+  </button>
 
-        {isDraft && (
-          <>
-            <button
-              type="button"
-              onClick={finalize}
-              disabled={finalizeDisabled}
-              style={btnStyle(finalizeDisabled)}
-            >
-              {blockedByDirty
-                ? '未保存のため発行不可'
-                : busy === 'finalize'
-                  ? finalizeStep === 'issuing'
-                    ? '発行中…'
-                    : 'PDF生成中…'
-                  : '発行＋PDF保存'}
-            </button>
+  {isDraft && (
+    <>
+      <button
+        type="button"
+        onClick={finalize}
+        disabled={finalizeDisabled}
+        style={btnStyle(finalizeDisabled)}
+      >
+        {blockedByDirty
+          ? '未保存のため発行不可'
+          : busy === 'finalize'
+            ? finalizeStep === 'issuing'
+              ? '発行中…'
+              : 'PDF保存中…'
+            : '発行してPDF保存'}
+      </button>
 
-            <button
-              type="button"
-              onClick={issue}
-              disabled={issueDisabled}
-              style={btnStyle(issueDisabled)}
-            >
-              {blockedByDirty ? '未保存のため不可' : busy === 'issue' ? '発行中…' : '発行（番号確定）'}
-            </button>
-          </>
-        )}
+      <button
+        type="button"
+        onClick={savePdf}
+        disabled={savePdfDisabled}
+        style={btnStyle(savePdfDisabled)}
+      >
+        {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF保存中…' : 'PDFだけ保存'}
+      </button>
 
-        {canSavePdf && (
-          <button
-            type="button"
-            onClick={savePdf}
-            disabled={savePdfDisabled}
-            style={btnStyle(savePdfDisabled)}
-          >
-            {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF生成中…' : 'PDF保存'}
-          </button>
-        )}
+      <button
+        type="button"
+        onClick={issue}
+        disabled={issueDisabled}
+        style={btnStyle(issueDisabled)}
+      >
+        {blockedByDirty ? '未保存のため不可' : busy === 'issue' ? '発行中…' : '発行のみ'}
+      </button>
+    </>
+  )}
 
-        {!isDraft && (
-          <button
-            type="button"
-            onClick={duplicateToEdit}
-            disabled={duplicateDisabled}
-            style={btnStyle(duplicateDisabled)}
-          >
-            {busy === 'duplicate' ? '複製中…' : '複製して編集（下書き作成）'}
-          </button>
-        )}
-      </div>
+  {!isDraft && canSavePdf && (
+    <button
+      type="button"
+      onClick={savePdf}
+      disabled={savePdfDisabled}
+      style={btnStyle(savePdfDisabled)}
+    >
+      {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF保存中…' : 'PDFだけ保存'}
+    </button>
+  )}
+
+  {!isDraft && (
+    <button
+      type="button"
+      onClick={duplicateToEdit}
+      disabled={duplicateDisabled}
+      style={btnStyle(duplicateDisabled)}
+    >
+      {busy === 'duplicate' ? '複製中…' : '複製して編集'}
+    </button>
+  )}
+</div>
 
       {!isDraft && (
         <p style={{ color: '#666' }}>
