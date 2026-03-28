@@ -566,7 +566,7 @@ const finalize = async () => {
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-  {isDraft && (
+    {isDraft && (
     <button
       type="button"
       onClick={finalize}
@@ -577,11 +577,11 @@ const finalize = async () => {
         ? '未保存のため発行不可'
         : busy === 'finalize'
           ? finalizeStep === 'issuing'
-            ? '発行中…'
-            : 'PDF保存中…'
-          : '発行してPDF保存'}
+          ? '発行中…'
+          : 'PDF保存中…'
+        : 'この内容で発行'}
     </button>
-  )}
+    )}
 
   <button
     type="button"
