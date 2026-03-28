@@ -85,7 +85,7 @@ export default async function DocumentEditPage({ params }: Props) {
         <p style={{ color: 'crimson' }}>
           このドキュメントは {(doc as any).status} のため編集できません。
         </p>
-        <Link href={`/documents/${documentId}`}>戻る</Link>
+        <Link href={`/documents/${documentId}`}>発行画面へ</Link>
       </div>
     )
   }
