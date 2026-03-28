@@ -29,7 +29,7 @@ export default function BackToDocumentLink({
         if (!ok) e.preventDefault()
       }}
     >
-      戻る
+      発行画面へ
     </Link>
   )
 }
