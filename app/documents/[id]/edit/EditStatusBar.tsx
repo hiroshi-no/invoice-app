@@ -112,7 +112,7 @@ export default function EditStatusBar({
             onClick={handleBackClick}
             style={actionLink}
           >
-            戻る
+            発行画面へ
           </Link>
         </div>
       </div>
