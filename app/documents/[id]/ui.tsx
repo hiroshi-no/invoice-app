@@ -196,13 +196,6 @@ export default function DocumentActions({
     return err || `エラーが発生しました (HTTP ${status})`
   }
 
-  function setPopupMessage(popup: Window | null, html: string) {
-    if (!popup) return
-    try {
-      popup.document.body.innerHTML = html
-    } catch {}
-  }
-
   const toastTimerRef = useRef<number | null>(null)
 
   function clearToastTimer() {
@@ -380,124 +373,77 @@ export default function DocumentActions({
     }
   }
 
-  const finalize = async () => {
-    if (!isDraft) return
-    if (isBusy) return
-    resetNotice()
+const finalize = async () => {
+  if (!isDraft) return
+  if (isBusy) return
+  resetNotice()
 
-    await runOnce('finalize', async () => {
-      const popup = window.open('about:blank', '_blank')
-      if (popup) {
-        try {
-          popup.document.title = 'Issuing...'
-          popup.document.body.innerHTML =
-            '<p style="font-family:sans-serif;">発行＆PDF保存を実行しています…</p>'
-        } catch {}
+  await runOnce('finalize', async () => {
+    try {
+      if (!ensureSavedOrWarn()) return
+
+      const itemsHash = await getItemsHashOrFetch()
+      if (!itemsHash) {
+        pushErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+        return
       }
 
+      setFinalizeStep('issuing')
+
+      const res = await fetch('/api/documents/' + documentId + '/finalize', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'x-confirm-saved-items': '1',
+          'x-items-hash': itemsHash,
+        },
+        cache: 'no-store',
+      })
+
+      const text = await res.clone().text().catch(() => '')
+      let json: any = {}
       try {
-        if (!ensureSavedOrWarn()) {
-          if (popup) popup.close()
-          return
-        }
-
-        const itemsHash = await getItemsHashOrFetch()
-        if (!itemsHash) {
-          pushErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
-          if (popup) popup.close()
-          return
-        }
-
-        setFinalizeStep('issuing')
-
-        const res = await fetch('/api/documents/' + documentId + '/finalize', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'x-confirm-saved-items': '1',
-            'x-items-hash': itemsHash,
-          },
-          cache: 'no-store',
-        })
-
-        const text = await res.clone().text().catch(() => '')
-        let json: any = {}
-        try {
-          json = text ? JSON.parse(text) : {}
-        } catch {
-          json = { raw: text }
-        }
-
-        if (!res.ok) {
-          reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
-          logApiError('finalize', res, json)
-
-          const friendly = friendlyFinalizeError(res.status, json)
-          pushErr(friendly)
-
-          setPopupMessage(
-            popup,
-            `
-            <div style="font-family:sans-serif;max-width:720px;margin:20px auto;line-height:1.6">
-              <h2 style="margin:0 0 12px">発行に失敗しました</h2>
-              <p style="color:#b00020;margin:0 0 12px">${friendly}</p>
-              <p style="margin:0 0 8px">対処：</p>
-              <ul style="margin:0 0 12px;padding-left:18px">
-                <li>明細を編集した場合は、編集画面で「保存」してから再実行</li>
-                <li>画面更新後に再実行（競合の可能性）</li>
-                <li>ログイン切れの場合は再ログイン</li>
-              </ul>
-              <p style="margin:0"><a href="${location.href}" target="_self">このドキュメント画面に戻る</a></p>
-            </div>
-            `
-          )
-          return
-        }
-
-        const issuedDocNo =
-          (json?.issue?.document?.document_no as string | undefined) ??
-          (json?.issue?.document_no as string | undefined) ??
-          (json?.issue?.document?.no as string | undefined) ??
-          null
-
-        if (issuedDocNo) {
-          setIssuedNo(issuedDocNo)
-          pushOk(`発行＋PDF保存しました：${issuedDocNo}`)
-        } else {
-          pushOk('発行＋PDF保存しました')
-        }
-
-        setOptimisticStatus('issued')
-        setFinalizeStep('saving')
-        setPopupMessage(popup, '<p style="font-family:sans-serif;">PDFを開きます…</p>')
-
-        router.refresh()
-
-        const newFileId =
-          (json?.pdf?.file?.id as string | undefined) ??
-          (json?.file?.id as string | undefined) ??
-          null
-
-        if (!popup) {
-          pushOk('発行＋PDF保存しました。保存済みPDFから開けます。')
-          return
-        }
-
-        if (newFileId) {
-          const url = `/api/documents/${documentId}/pdf-files/${newFileId}/download`
-          popup.location.href = url
-          popup.focus()
-          return
-        }
-
-        popup.close()
-      } catch (e: any) {
-        pushErr('Network/JS error: ' + (e?.message ?? String(e)))
-      } finally {
-        setFinalizeStep('idle')
+        json = text ? JSON.parse(text) : {}
+      } catch {
+        json = { raw: text }
       }
-    })
-  }
+
+      if (!res.ok) {
+        reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
+        logApiError('finalize', res, json)
+
+        const friendly = friendlyFinalizeError(res.status, json)
+        pushErr(friendly)
+        return
+      }
+
+      const issuedDocNo =
+        (json?.issue?.document?.document_no as string | undefined) ??
+        (json?.issue?.document_no as string | undefined) ??
+        (json?.issue?.document?.no as string | undefined) ??
+        null
+
+      if (issuedDocNo) {
+        setIssuedNo(issuedDocNo)
+      }
+
+      setOptimisticStatus('issued')
+      setFinalizeStep('saving')
+
+      router.refresh()
+
+      if (issuedDocNo) {
+        pushOk(`発行＋PDF保存しました：${issuedDocNo}`)
+      } else {
+        pushOk('発行＋PDF保存しました')
+      }
+    } catch (e: any) {
+      pushErr('Network/JS error: ' + (e?.message ?? String(e)))
+    } finally {
+      setFinalizeStep('idle')
+    }
+  })
+}
 
   const actionBusy = !!busy || isBusy || finalizeStep !== 'idle'
   const blockedByDirty = !!dirtyItems
@@ -652,7 +598,7 @@ export default function DocumentActions({
                   ? finalizeStep === 'issuing'
                     ? '発行中…'
                     : 'PDF生成中…'
-                  : '発行＋PDF保存（開く）'}
+                  : '発行＋PDF保存'}
             </button>
 
             <button
