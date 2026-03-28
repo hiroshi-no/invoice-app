@@ -128,7 +128,6 @@ export default async function DocumentsPage() {
             新規見積書
           </Link>
 
-          <Link href="/debug">デバッグ</Link>
         </div>
       </div>
 
