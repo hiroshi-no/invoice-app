@@ -566,21 +566,12 @@ const finalize = async () => {
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-  <button
-    type="button"
-    onClick={openPdfPreview}
-    disabled={previewDisabled}
-    style={btnStyle(previewDisabled)}
-  >
-    PDFプレビュー
-  </button>
-
   {isDraft && (
     <button
       type="button"
       onClick={finalize}
       disabled={finalizeDisabled}
-      style={btnStyle(finalizeDisabled)}
+      style={btnPrimaryStyle(finalizeDisabled)}
     >
       {blockedByDirty
         ? '未保存のため発行不可'
@@ -591,6 +582,15 @@ const finalize = async () => {
           : '発行してPDF保存'}
     </button>
   )}
+
+  <button
+    type="button"
+    onClick={openPdfPreview}
+    disabled={previewDisabled}
+    style={btnStyle(previewDisabled)}
+  >
+    PDFプレビュー
+  </button>
 
   {!isDraft && (
     <button
@@ -714,5 +714,26 @@ function btnStyle(disabled: boolean): React.CSSProperties {
     opacity: 0.55,
     cursor: 'not-allowed',
     pointerEvents: 'none',
+  }
+}
+
+const btnPrimaryBase: React.CSSProperties = {
+  ...btnBase,
+  padding: '10px 16px',
+  border: '1px solid #111827',
+  background: '#111827',
+  color: '#fff',
+  fontWeight: 700,
+  boxShadow: '0 8px 20px rgba(17, 24, 39, 0.18)',
+}
+
+function btnPrimaryStyle(disabled: boolean): React.CSSProperties {
+  if (!disabled) return btnPrimaryBase
+  return {
+    ...btnPrimaryBase,
+    opacity: 0.55,
+    cursor: 'not-allowed',
+    pointerEvents: 'none',
+    boxShadow: 'none',
   }
 }
