@@ -85,7 +85,7 @@ export default async function DocumentEditPage({ params }: Props) {
         <p style={{ color: 'crimson' }}>
           このドキュメントは {(doc as any).status} のため編集できません。
         </p>
-        <Link href={`/documents/${documentId}`}>発行画面へ</Link>
+        <Link href={`/documents/${documentId}`}>戻る</Link>
       </div>
     )
   }
@@ -184,7 +184,7 @@ export default async function DocumentEditPage({ params }: Props) {
           }}
         >
           <h1 style={{ margin: 0 }}>書類編集</h1>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'none' }}>
           <BackToDocumentLink documentId={documentId} />
          </div>
         </div>
