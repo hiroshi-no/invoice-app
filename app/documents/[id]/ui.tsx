@@ -575,60 +575,20 @@ const finalize = async () => {
     PDFプレビュー
   </button>
 
-  <button
-    type="button"
-    onClick={() => router.refresh()}
-    disabled={refreshDisabled}
-    style={btnStyle(refreshDisabled)}
-  >
-    画面更新
-  </button>
-
   {isDraft && (
-    <>
-      <button
-        type="button"
-        onClick={finalize}
-        disabled={finalizeDisabled}
-        style={btnStyle(finalizeDisabled)}
-      >
-        {blockedByDirty
-          ? '未保存のため発行不可'
-          : busy === 'finalize'
-            ? finalizeStep === 'issuing'
-              ? '発行中…'
-              : 'PDF保存中…'
-            : '発行してPDF保存'}
-      </button>
-
-      <button
-        type="button"
-        onClick={savePdf}
-        disabled={savePdfDisabled}
-        style={btnStyle(savePdfDisabled)}
-      >
-        {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF保存中…' : 'PDFだけ保存'}
-      </button>
-
-      <button
-        type="button"
-        onClick={issue}
-        disabled={issueDisabled}
-        style={btnStyle(issueDisabled)}
-      >
-        {blockedByDirty ? '未保存のため不可' : busy === 'issue' ? '発行中…' : '発行のみ'}
-      </button>
-    </>
-  )}
-
-  {!isDraft && canSavePdf && (
     <button
       type="button"
-      onClick={savePdf}
-      disabled={savePdfDisabled}
-      style={btnStyle(savePdfDisabled)}
+      onClick={finalize}
+      disabled={finalizeDisabled}
+      style={btnStyle(finalizeDisabled)}
     >
-      {blockedByDirty ? '未保存のため不可' : busy === 'savePdf' ? 'PDF保存中…' : 'PDFだけ保存'}
+      {blockedByDirty
+        ? '未保存のため発行不可'
+        : busy === 'finalize'
+          ? finalizeStep === 'issuing'
+            ? '発行中…'
+            : 'PDF保存中…'
+          : '発行してPDF保存'}
     </button>
   )}
 
