@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { LogoutButton } from '@/app/components/LogoutButton'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -37,14 +36,9 @@ export default async function DashboardPage() {
       <div style={{ marginTop: 12, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>集計</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Link href="/dashboard/monthly">月次集計（今年）</Link>
+          <Link href="/dashboard/monthly">月次集計</Link>
           <Link href={`/dashboard/monthly?year=${year - 1}`}>月次集計（{year - 1}）</Link>
-          <Link href={`/dashboard/monthly?year=${year}`}>月次集計（{year}）</Link>
         </div>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <LogoutButton />
       </div>
     </main>
   )
