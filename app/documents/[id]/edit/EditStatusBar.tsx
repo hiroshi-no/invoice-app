@@ -90,7 +90,6 @@ export default function EditStatusBar({
           }}
         >
           <StatusChip label="書類番号" value={documentNo} />
-          <StatusChip label="通貨" value={currency} />
           <DirtyChip label="書類情報" dirty={metaDirty} />
           <DirtyChip label="明細" dirty={itemsDirty} />
         </div>

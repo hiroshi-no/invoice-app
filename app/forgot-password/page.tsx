@@ -20,10 +20,7 @@ export default function ForgotPasswordPage() {
     setErr(null)
 
     try {
-      const redirectTo =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/update-password`
-          : undefined
+      const redirectTo = 'https://seikyunote.com/update-password'
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo,
