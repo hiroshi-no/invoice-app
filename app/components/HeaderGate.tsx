@@ -4,29 +4,34 @@ import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import AppHeader from './AppHeader'
 
+function matchPath(pathname: string, base: string) {
+  return pathname === base || pathname.startsWith(`${base}/`)
+}
+
 export default function HeaderGate() {
   const pathname = usePathname()
   const router = useRouter()
-  const [err, setErr] = useState<string | null>(null)
 
-  const isPublicPage = useMemo(() => {
+  const [err, setErr] = useState<string | null>(null)
+  const [showHeaderOnOptionalPage, setShowHeaderOnOptionalPage] = useState(false)
+
+  const isAuthPage = useMemo(() => {
     if (!pathname) return false
 
     return (
-      pathname === '/login' ||
-      pathname.startsWith('/login/') ||
-      pathname === '/forgot-password' ||
-      pathname.startsWith('/forgot-password/') ||
-      pathname === '/update-password' ||
-      pathname.startsWith('/update-password/') ||
-      pathname === '/contact' ||
-      pathname.startsWith('/contact/') ||
-      pathname === '/privacy' ||
-      pathname.startsWith('/privacy/') ||
-      pathname === '/terms' ||
-      pathname.startsWith('/terms/') ||
-      pathname === '/legal' ||
-      pathname.startsWith('/legal/')
+      matchPath(pathname, '/login') ||
+      matchPath(pathname, '/forgot-password') ||
+      matchPath(pathname, '/update-password')
+    )
+  }, [pathname])
+
+  const isAlwaysPublicPage = useMemo(() => {
+    if (!pathname) return false
+
+    return (
+      matchPath(pathname, '/privacy') ||
+      matchPath(pathname, '/terms') ||
+      matchPath(pathname, '/legal')
     )
   }, [pathname])
 
@@ -34,13 +39,24 @@ export default function HeaderGate() {
     if (!pathname) return false
 
     return (
-      pathname === '/documents' ||
-      pathname.startsWith('/documents/')
+      matchPath(pathname, '/documents') ||
+      matchPath(pathname, '/customers') ||
+      matchPath(pathname, '/user-settings') ||
+      matchPath(pathname, '/dashboard')
+      // ダッシュボードが "/" の場合は下を有効化
+      // pathname === '/'
     )
   }, [pathname])
 
+  const isOptionalHeaderPage = useMemo(() => {
+    if (!pathname) return false
+    return matchPath(pathname, '/contact')
+  }, [pathname])
+
   useEffect(() => {
-    if (!isProtectedPage) return
+    setShowHeaderOnOptionalPage(false)
+
+    if (!isProtectedPage && !isOptionalHeaderPage) return
 
     let cancelled = false
 
@@ -57,25 +73,40 @@ export default function HeaderGate() {
 
       if (cancelled) return
 
-      if (!res.ok) {
-        if (res.status === 401) {
+      if (res.ok) {
+        if (isOptionalHeaderPage) {
+          setShowHeaderOnOptionalPage(true)
+        }
+        return
+      }
+
+      if (res.status === 401) {
+        if (isProtectedPage) {
           router.replace('/login')
           return
         }
-        setErr(`ensure-profile failed: HTTP ${res.status} ${json?.message ?? json?.error ?? ''}`)
+
+        // /contact などの公開ページでは、未ログインならヘッダーを出さないだけ
+        setShowHeaderOnOptionalPage(false)
+        return
       }
+
+      setErr(`ensure-profile failed: HTTP ${res.status} ${json?.message ?? json?.error ?? ''}`)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [isProtectedPage, router])
+  }, [isProtectedPage, isOptionalHeaderPage, router])
 
-  if (!isProtectedPage) return null
+  const shouldShowHeader =
+    isProtectedPage || (isOptionalHeaderPage && showHeaderOnOptionalPage)
+
+  if (isAuthPage || isAlwaysPublicPage) return null
 
   return (
     <>
-      <AppHeader />
+      {shouldShowHeader ? <AppHeader /> : null}
       {err ? <div className="px-4 py-2 text-xs text-red-600">{err}</div> : null}
     </>
   )
