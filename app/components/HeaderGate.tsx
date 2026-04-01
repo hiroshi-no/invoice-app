@@ -30,8 +30,17 @@ export default function HeaderGate() {
     )
   }, [pathname])
 
+  const isProtectedPage = useMemo(() => {
+    if (!pathname) return false
+
+    return (
+      pathname === '/documents' ||
+      pathname.startsWith('/documents/')
+    )
+  }, [pathname])
+
   useEffect(() => {
-    if (isPublicPage) return
+    if (!isProtectedPage) return
 
     let cancelled = false
 
@@ -60,9 +69,9 @@ export default function HeaderGate() {
     return () => {
       cancelled = true
     }
-  }, [isPublicPage, router])
+  }, [isProtectedPage, router])
 
-  if (isPublicPage) return null
+  if (!isProtectedPage) return null
 
   return (
     <>
