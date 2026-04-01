@@ -41,16 +41,15 @@ export default function HeaderGate() {
     return (
       matchPath(pathname, '/documents') ||
       matchPath(pathname, '/customers') ||
-      matchPath(pathname, '/user-settings') ||
-      matchPath(pathname, '/dashboard')
-      // ダッシュボードが "/" の場合は下を有効化
-      // pathname === '/'
+      matchPath(pathname, '/dashboard') ||
+      matchPath(pathname, '/settings')
     )
   }, [pathname])
 
   const isOptionalHeaderPage = useMemo(() => {
     if (!pathname) return false
-    return matchPath(pathname, '/contact')
+
+    return pathname === '/' || matchPath(pathname, '/contact')
   }, [pathname])
 
   useEffect(() => {
@@ -86,7 +85,6 @@ export default function HeaderGate() {
           return
         }
 
-        // /contact などの公開ページでは、未ログインならヘッダーを出さないだけ
         setShowHeaderOnOptionalPage(false)
         return
       }
