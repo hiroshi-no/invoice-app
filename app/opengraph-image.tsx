@@ -41,12 +41,12 @@ export default async function Image() {
         >
           <div
             style={{
+              display: 'flex',
               width: 56,
               height: 56,
               borderRadius: 14,
               background: '#ffffff',
               color: '#111827',
-              display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 24,
@@ -58,6 +58,7 @@ export default async function Image() {
 
           <div
             style={{
+              display: 'flex',
               fontSize: 36,
               fontWeight: 700,
             }}
@@ -75,31 +76,38 @@ export default async function Image() {
         >
           <div
             style={{
+              display: 'flex',
+              flexDirection: 'column',
               fontSize: 64,
               fontWeight: 700,
               lineHeight: 1.2,
             }}
           >
-            請求書・見積書
-            <br />
-            PDF作成アプリ
+            <div style={{ display: 'flex' }}>請求書・見積書</div>
+            <div style={{ display: 'flex' }}>PDF作成アプリ</div>
           </div>
 
           <div
             style={{
+              display: 'flex',
+              flexDirection: 'column',
               fontSize: 28,
               color: '#d1d5db',
               lineHeight: 1.5,
             }}
           >
-            書類作成、PDFプレビュー、保存、発行まで
-            <br />
-            シンプルに管理できるWebアプリ
+            <div style={{ display: 'flex' }}>
+              書類作成、PDFプレビュー、保存、発行まで
+            </div>
+            <div style={{ display: 'flex' }}>
+              シンプルに管理できるWebアプリ
+            </div>
           </div>
         </div>
 
         <div
           style={{
+            display: 'flex',
             fontSize: 22,
             color: '#9ca3af',
           }}
