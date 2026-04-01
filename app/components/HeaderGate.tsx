@@ -35,6 +35,11 @@ export default function HeaderGate() {
     )
   }, [pathname])
 
+  const isAlwaysHeaderPage = useMemo(() => {
+    if (!pathname) return false
+    return pathname === '/'
+  }, [pathname])
+
   const isProtectedPage = useMemo(() => {
     if (!pathname) return false
 
@@ -48,8 +53,7 @@ export default function HeaderGate() {
 
   const isOptionalHeaderPage = useMemo(() => {
     if (!pathname) return false
-
-    return pathname === '/' || matchPath(pathname, '/contact')
+    return matchPath(pathname, '/contact')
   }, [pathname])
 
   useEffect(() => {
@@ -98,7 +102,9 @@ export default function HeaderGate() {
   }, [isProtectedPage, isOptionalHeaderPage, router])
 
   const shouldShowHeader =
-    isProtectedPage || (isOptionalHeaderPage && showHeaderOnOptionalPage)
+    isAlwaysHeaderPage ||
+    isProtectedPage ||
+    (isOptionalHeaderPage && showHeaderOnOptionalPage)
 
   if (isAuthPage || isAlwaysPublicPage) return null
 
