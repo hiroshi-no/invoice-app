@@ -18,7 +18,15 @@ export default function HeaderGate() {
       pathname === '/forgot-password' ||
       pathname.startsWith('/forgot-password/') ||
       pathname === '/update-password' ||
-      pathname.startsWith('/update-password/')
+      pathname.startsWith('/update-password/') ||
+      pathname === '/contact' ||
+      pathname.startsWith('/contact/') ||
+      pathname === '/privacy' ||
+      pathname.startsWith('/privacy/') ||
+      pathname === '/terms' ||
+      pathname.startsWith('/terms/') ||
+      pathname === '/legal' ||
+      pathname.startsWith('/legal/')
     )
   }, [pathname])
 
