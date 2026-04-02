@@ -8,6 +8,11 @@ import { respondJson } from '@/lib/api/response'
 import { withDebug } from '@/lib/debug'
 import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 import { loadOrgBranding } from '@/lib/pdf/branding'
+import {
+  assertCanUseBranding,
+  PlanLimitError,
+  toPlanLimitJson,
+} from '@/lib/billing/guards'
 
 function pickNonEmptyString(v: any, fallback = '') {
   const s = String(v ?? '').trim()
@@ -82,22 +87,41 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
+  // Starter 以上のみ保存可
+  try {
+    await assertCanUseBranding(supabase as any, current.orgId)
+  } catch (err) {
+    if (err instanceof PlanLimitError) {
+      return respondJson(cookiesToSet, toPlanLimitJson(err), { status: err.status })
+    }
+
+    return respondJson(
+      cookiesToSet,
+      {
+        error: 'branding_plan_check_failed',
+        message: 'プラン確認に失敗しました。時間をおいて再実行してください。',
+        ...withDebug({ detail: (err as any)?.message ?? String(err) }),
+      },
+      { status: 500 }
+    )
+  }
+
   const body = await req.json().catch(() => ({}))
   const now = new Date().toISOString()
 
-const commonPayload = {
-  brand_color: normalizeColor(body?.brandColor),
-  template_key: pickTemplateKey(body?.templateKey),
-  footer_text: String(body?.footerText ?? ''),
-  issuer_name: pickNonEmptyString(body?.issuerName),
-  issuer_postal_code: pickNonEmptyString(body?.issuerPostalCode),
-  issuer_address1: pickNonEmptyString(body?.issuerAddress1),
-  issuer_address2: pickNonEmptyString(body?.issuerAddress2),
-  issuer_email: pickNonEmptyString(body?.issuerEmail),
-  issuer_phone: pickNonEmptyString(body?.issuerPhone),
-  issuer_fax: pickNonEmptyString(body?.issuerFax),
-  updated_at: now,
-}
+  const commonPayload = {
+    brand_color: normalizeColor(body?.brandColor),
+    template_key: pickTemplateKey(body?.templateKey),
+    footer_text: String(body?.footerText ?? ''),
+    issuer_name: pickNonEmptyString(body?.issuerName),
+    issuer_postal_code: pickNonEmptyString(body?.issuerPostalCode),
+    issuer_address1: pickNonEmptyString(body?.issuerAddress1),
+    issuer_address2: pickNonEmptyString(body?.issuerAddress2),
+    issuer_email: pickNonEmptyString(body?.issuerEmail),
+    issuer_phone: pickNonEmptyString(body?.issuerPhone),
+    issuer_fax: pickNonEmptyString(body?.issuerFax),
+    updated_at: now,
+  }
 
   // まず update を試す
   const { data: updatedRows, error: updateErr } = await supabase

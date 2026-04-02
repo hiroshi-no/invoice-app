@@ -8,6 +8,12 @@ import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { respondJson } from '@/lib/api/response'
 import { withDebug } from '@/lib/debug'
 import { computeItemsHashFromDbRows } from '@/lib/itemsHash'
+import {
+  assertCanIssueDocument,
+  PlanLimitError,
+  toPlanLimitJson,
+} from '@/lib/billing/guards'
+import { incrementIssuedCount } from '@/lib/billing/usage'
 
 type RouteContext =
   | { params: { id: string } }
@@ -117,6 +123,22 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       )
     }
 
+    // --------------------------------------------------
+    // billing: 月間発行上限チェック
+    // --------------------------------------------------
+    let billingInfo:
+      | { plan: 'free' | 'starter' | 'standard'; remaining: number | null }
+      | null = null
+
+    try {
+      billingInfo = await assertCanIssueDocument(supabase, orgId)
+    } catch (err) {
+      if (err instanceof PlanLimitError) {
+        return respond(toPlanLimitJson(err), { status: err.status })
+      }
+      throw err
+    }
+
     const clientHash = (req.headers.get('x-items-hash') ?? '').trim().toLowerCase()
     if (!clientHash) {
       return respondErr(
@@ -215,7 +237,20 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       )
     }
 
-    return respond({ ok: true, document: doc, rpc: rpcData ?? null }, { status: 200 })
+    // --------------------------------------------------
+    // billing: 発行成功後にカウント加算
+    // --------------------------------------------------
+    await incrementIssuedCount(supabase, orgId)
+
+    return respond(
+      {
+        ok: true,
+        document: doc,
+        rpc: rpcData ?? null,
+        billing: billingInfo,
+      },
+      { status: 200 }
+    )
   } catch (e: any) {
     return respondErr(
       'issue_failed',

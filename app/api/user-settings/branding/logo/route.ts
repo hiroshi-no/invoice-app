@@ -9,6 +9,11 @@ import { respondJson } from '@/lib/api/response'
 import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { withDebug } from '@/lib/debug'
 import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import {
+  assertCanUseBranding,
+  PlanLimitError,
+  toPlanLimitJson,
+} from '@/lib/billing/guards'
 
 function createServiceSupabase() {
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -117,6 +122,22 @@ export async function POST(req: NextRequest) {
   }
 
   const { orgId, userId } = current
+
+  // Starter 以上のみロゴ保存可
+  try {
+    await assertCanUseBranding(supabase as any, orgId)
+  } catch (err) {
+    if (err instanceof PlanLimitError) {
+      return respond(toPlanLimitJson(err), { status: err.status })
+    }
+
+    return respondErr(
+      'branding_logo_plan_check_failed',
+      'プラン確認に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: (err as any)?.message ?? String(err), orgId }
+    )
+  }
 
   let file: File | null = null
   try {
@@ -283,6 +304,22 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { orgId, userId } = current
+
+  // Starter 以上のみロゴ削除可
+  try {
+    await assertCanUseBranding(supabase as any, orgId)
+  } catch (err) {
+    if (err instanceof PlanLimitError) {
+      return respond(toPlanLimitJson(err), { status: err.status })
+    }
+
+    return respondErr(
+      'branding_logo_plan_check_failed',
+      'プラン確認に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: (err as any)?.message ?? String(err), orgId }
+    )
+  }
 
   const { data: settings, error } = await supabase
     .from('user_settings')

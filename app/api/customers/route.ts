@@ -7,6 +7,11 @@ import { NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { respondJson } from '@/lib/api/response'
 import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
+import {
+  assertCanCreateCustomer,
+  PlanLimitError,
+  toPlanLimitJson,
+} from '@/lib/billing/guards'
 
 function nullableText(v: unknown) {
   if (v == null) return null
@@ -85,6 +90,49 @@ export async function POST(req: NextRequest) {
         message: '顧客名を入力してください。',
       },
       { status: 400 }
+    )
+  }
+
+  // --------------------------------------------------
+  // billing: 顧客登録上限チェック
+  // --------------------------------------------------
+  const { count: currentCustomerCount, error: countErr } = await supabase
+    .from('customers')
+    .select('*', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+
+  if (countErr) {
+    console.error('[customers][POST] count failed', countErr)
+
+    return respond(
+      {
+        error: 'customer_count_failed',
+        message: '顧客件数の確認に失敗しました。',
+        detail: process.env.NODE_ENV !== 'production' ? countErr.message : undefined,
+      },
+      { status: 500 }
+    )
+  }
+
+  try {
+    await assertCanCreateCustomer(supabase as any, orgId, currentCustomerCount ?? 0)
+  } catch (err) {
+    if (err instanceof PlanLimitError) {
+      return respond(toPlanLimitJson(err), { status: err.status })
+    }
+
+    console.error('[customers][POST] plan check failed', err)
+
+    return respond(
+      {
+        error: 'customer_plan_check_failed',
+        message: 'プラン確認に失敗しました。',
+        detail:
+          process.env.NODE_ENV !== 'production'
+            ? ((err as any)?.message ?? String(err))
+            : undefined,
+      },
+      { status: 500 }
     )
   }
 

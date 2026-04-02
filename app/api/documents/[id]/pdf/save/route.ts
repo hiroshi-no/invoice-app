@@ -16,6 +16,12 @@ import { buildInvoiceViewModel } from '@/lib/pdf/buildInvoiceViewModel'
 import { getPdfFontCss } from '@/lib/pdf/fontCss'
 import { renderPdfFromHtml } from '@/lib/pdf/render'
 import { enforceRateLimit } from '@/lib/rateLimit'
+import {
+  assertCanSavePdfHistory,
+  PlanLimitError,
+  toPlanLimitJson,
+} from '@/lib/billing/guards'
+import { incrementSavedPdfCount } from '@/lib/billing/usage'
 
 type RouteContext =
   | { params: { id: string } }
@@ -252,6 +258,47 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     )
   }
 
+  // --------------------------------------------------
+  // billing: PDF履歴保存上限チェック
+  // --------------------------------------------------
+  const { count: currentHistoryCount, error: historyCountErr } = await supabase
+    .from('document_files')
+    .select('*', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+    .eq('document_id', documentId)
+
+  if (historyCountErr) {
+    return respondErr(
+      'pdf_history_count_failed',
+      'PDF履歴件数の確認に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: historyCountErr.message, orgId, documentId }
+    )
+  }
+
+  let billingInfo:
+    | { plan: 'free' | 'starter' | 'standard'; remaining: number | null }
+    | null = null
+
+  try {
+    billingInfo = await assertCanSavePdfHistory(
+      supabase as any,
+      orgId,
+      currentHistoryCount ?? 0
+    )
+  } catch (err) {
+    if (err instanceof PlanLimitError) {
+      return respond(toPlanLimitJson(err), { status: err.status })
+    }
+
+    return respondErr(
+      'pdf_history_plan_check_failed',
+      'プラン確認に失敗しました。時間をおいて再実行してください。',
+      500,
+      { detail: (err as any)?.message ?? String(err), orgId, documentId }
+    )
+  }
+
   let customer: any = null
   if (doc.customer_id) {
     const { data: customerData, error: cErr } = await supabase
@@ -314,19 +361,19 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
     const nextVersion = maxVersion + 1
 
-     const pdfFileName = buildPdfFileName({
-     docType: doc.doc_type,
-     documentNo: doc.document_no ?? null,
-     version: nextVersion,
-   })
+    const pdfFileName = buildPdfFileName({
+      docType: doc.doc_type,
+      documentNo: doc.document_no ?? null,
+      version: nextVersion,
+    })
 
-   const storageFileName = buildStoragePdfFileName({
-     docType: doc.doc_type,
-     documentNo: doc.document_no ?? null,
-     version: nextVersion,
-   })
+    const storageFileName = buildStoragePdfFileName({
+      docType: doc.doc_type,
+      documentNo: doc.document_no ?? null,
+      version: nextVersion,
+    })
 
-   const storagePath = `${orgId}/${documentId}/${Date.now()}_${storageFileName}`
+    const storagePath = `${orgId}/${documentId}/${Date.now()}_${storageFileName}`
 
     const { data: up, error: upErr } = await admin.storage
       .from('documents')
@@ -387,6 +434,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       )
     }
 
+    // --------------------------------------------------
+    // billing: PDF保存成功後に月次利用数を加算
+    // --------------------------------------------------
+    await incrementSavedPdfCount(supabase as any, orgId)
+
     const { error: updErr } = await supabase
       .from('documents')
       .update({
@@ -403,6 +455,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
           ok: true,
           file: saved,
           totals,
+          billing: billingInfo,
           warning: '合計金額の更新に一部失敗しました。',
           ...withDebug({ detail: updErr.message }),
         },
@@ -410,7 +463,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       )
     }
 
-    return respond({ ok: true, file: saved, totals }, { status: 200 })
+    return respond({ ok: true, file: saved, totals, billing: billingInfo }, { status: 200 })
   } catch (e: any) {
     return respondErr(
       'pdf_save_failed',
