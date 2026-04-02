@@ -32,7 +32,7 @@ export default function AppHeader() {
               ダッシュボード
             </Link>
             <Link href="/settings/branding" style={{ textDecoration: 'none', color: '#111' }}>
-              ブランディング
+              ブランド設定
             </Link>
             <Link href="/contact" style={{ textDecoration: 'none', color: '#111' }}>
               お問い合わせ
