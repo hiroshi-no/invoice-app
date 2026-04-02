@@ -41,6 +41,65 @@ const steps = [
   '保存・発行して業務に利用',
 ]
 
+const pricingPlans = [
+  {
+    name: 'Free',
+    price: '0円',
+    period: '/ 月',
+    description: 'まず試したい方向けの無料プランです。',
+    badge: 'はじめての方向け',
+    items: [
+      '請求書・見積書の作成',
+      'PDFプレビュー',
+      'PDF保存',
+      '顧客登録 10件まで',
+      '月5件までの発行',
+      '基本テンプレート 1種類',
+    ],
+    ctaLabel: '無料で始める',
+    ctaHref: '/login',
+    featured: false,
+  },
+  {
+    name: 'Starter',
+    price: '980円',
+    period: '/ 月',
+    description: '日常業務で継続利用しやすい標準プランです。',
+    badge: 'おすすめ',
+    items: [
+      'Freeの全機能',
+      '月30件までの発行',
+      '顧客数無制限',
+      'PDF履歴保存',
+      'ロゴ反映',
+      'ブランド設定',
+      'テンプレート複数選択',
+    ],
+    ctaLabel: 'Starterを見る',
+    ctaHref: '/contact',
+    featured: true,
+  },
+  {
+    name: 'Standard',
+    price: '2,980円',
+    period: '/ 月',
+    description: '本格運用や継続管理に向いた上位プランです。',
+    badge: '業務利用向け',
+    items: [
+      'Starterの全機能',
+      '発行数ほぼ無制限',
+      'PDF履歴無制限',
+      '書類複製',
+      '見積書から請求書への変換',
+      'CSV出力',
+      '月次レポート',
+    ],
+    ctaLabel: 'Standardを見る',
+    ctaHref: '/contact',
+    featured: false,
+  },
+]
+
 export default function HomePage() {
   return (
     <main style={{ background: '#fff', color: '#111827' }}>
@@ -199,6 +258,164 @@ export default function HomePage() {
               <InfoRow label="有効期限" value="2026-04-30" />
             </div>
 
+function PricingCard({
+  name,
+  price,
+  period,
+  description,
+  badge,
+  items,
+  ctaLabel,
+  ctaHref,
+  featured,
+}: {
+  name: string
+  price: string
+  period: string
+  description: string
+  badge: string
+  items: string[]
+  ctaLabel: string
+  ctaHref: string
+  featured?: boolean
+}) {
+  return (
+    <div
+      style={{
+        border: featured ? '2px solid #111827' : '1px solid #e5e7eb',
+        borderRadius: 20,
+        padding: 22,
+        background: '#fff',
+        boxShadow: featured ? '0 16px 40px rgba(17,24,39,0.08)' : 'none',
+        position: 'relative',
+      }}
+    >
+      <div
+        style={{
+          display: 'inline-block',
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: 0.4,
+          color: featured ? '#111827' : '#4b5563',
+          background: featured ? '#e5e7eb' : '#f3f4f6',
+          borderRadius: 999,
+          padding: '6px 10px',
+          marginBottom: 14,
+        }}
+      >
+        {badge}
+      </div>
+
+      <h3
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          margin: 0,
+        }}
+      >
+        {name}
+      </h3>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          marginTop: 14,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 34,
+            fontWeight: 800,
+            lineHeight: 1,
+          }}
+        >
+          {price}
+        </span>
+        <span
+          style={{
+            fontSize: 14,
+            color: '#6b7280',
+          }}
+        >
+          {period}
+        </span>
+      </div>
+
+      <p
+        style={{
+          marginTop: 14,
+          marginBottom: 0,
+          color: '#4b5563',
+          lineHeight: 1.8,
+          fontSize: 14,
+        }}
+      >
+        {description}
+      </p>
+
+      <div
+        style={{
+          marginTop: 18,
+          paddingTop: 18,
+          borderTop: '1px solid #f3f4f6',
+          display: 'grid',
+          gap: 10,
+        }}
+      >
+        {items.map((item) => (
+          <div
+            key={item}
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              fontSize: 14,
+              color: '#374151',
+              lineHeight: 1.7,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 18,
+                color: '#111827',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              ✓
+            </span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <Link
+          href={ctaHref}
+          style={{
+            display: 'inline-block',
+            width: '100%',
+            textAlign: 'center',
+            textDecoration: 'none',
+            background: featured ? '#111827' : '#fff',
+            color: featured ? '#fff' : '#111827',
+            padding: '14px 16px',
+            borderRadius: 10,
+            fontWeight: 700,
+            border: featured ? 'none' : '1px solid #d1d5db',
+            boxSizing: 'border-box',
+          }}
+        >
+          {ctaLabel}
+        </Link>
+      </div>
+    </div>
+  )
+}
+
             <div
               style={{
                 marginTop: 18,
@@ -333,6 +550,64 @@ export default function HomePage() {
           >
             ご利用の流れ
           </h2>
+
+<section>
+  <div
+    style={{
+      maxWidth: 1100,
+      margin: '0 auto',
+      padding: 'clamp(40px, 6vw, 64px) 16px 24px',
+    }}
+  >
+    <h2
+      style={{
+        fontSize: 'clamp(26px, 4vw, 32px)',
+        lineHeight: 1.35,
+        fontWeight: 800,
+        margin: 0,
+      }}
+    >
+      料金プラン
+    </h2>
+
+    <p
+      style={{
+        marginTop: 14,
+        color: '#4b5563',
+        lineHeight: 1.9,
+        maxWidth: 760,
+      }}
+    >
+      まずは無料で使い始めて、業務量に合わせてアップグレードできます。
+      基本作成は無料で試せて、発行数やブランド設定などの継続利用向け機能を有料プランで拡張できます。
+    </p>
+
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gap: 18,
+        marginTop: 28,
+      }}
+    >
+      {pricingPlans.map((plan) => (
+        <PricingCard key={plan.name} {...plan} />
+      ))}
+    </div>
+
+    <p
+      style={{
+        marginTop: 18,
+        fontSize: 13,
+        color: '#6b7280',
+        lineHeight: 1.8,
+      }}
+    >
+      ※ 表示内容や価格は今後変更する場合があります。<br />
+      ※ 有料プラン導入時は、支払方法・契約更新・解約条件をサービス上でご案内します。
+    </p>
+  </div>
+</section>
 
           <div
             style={{
