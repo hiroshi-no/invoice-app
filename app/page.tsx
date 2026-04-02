@@ -258,164 +258,6 @@ export default function HomePage() {
               <InfoRow label="有効期限" value="2026-04-30" />
             </div>
 
-function PricingCard({
-  name,
-  price,
-  period,
-  description,
-  badge,
-  items,
-  ctaLabel,
-  ctaHref,
-  featured,
-}: {
-  name: string
-  price: string
-  period: string
-  description: string
-  badge: string
-  items: string[]
-  ctaLabel: string
-  ctaHref: string
-  featured?: boolean
-}) {
-  return (
-    <div
-      style={{
-        border: featured ? '2px solid #111827' : '1px solid #e5e7eb',
-        borderRadius: 20,
-        padding: 22,
-        background: '#fff',
-        boxShadow: featured ? '0 16px 40px rgba(17,24,39,0.08)' : 'none',
-        position: 'relative',
-      }}
-    >
-      <div
-        style={{
-          display: 'inline-block',
-          fontSize: 12,
-          fontWeight: 700,
-          letterSpacing: 0.4,
-          color: featured ? '#111827' : '#4b5563',
-          background: featured ? '#e5e7eb' : '#f3f4f6',
-          borderRadius: 999,
-          padding: '6px 10px',
-          marginBottom: 14,
-        }}
-      >
-        {badge}
-      </div>
-
-      <h3
-        style={{
-          fontSize: 22,
-          fontWeight: 800,
-          margin: 0,
-        }}
-      >
-        {name}
-      </h3>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 6,
-          marginTop: 14,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 34,
-            fontWeight: 800,
-            lineHeight: 1,
-          }}
-        >
-          {price}
-        </span>
-        <span
-          style={{
-            fontSize: 14,
-            color: '#6b7280',
-          }}
-        >
-          {period}
-        </span>
-      </div>
-
-      <p
-        style={{
-          marginTop: 14,
-          marginBottom: 0,
-          color: '#4b5563',
-          lineHeight: 1.8,
-          fontSize: 14,
-        }}
-      >
-        {description}
-      </p>
-
-      <div
-        style={{
-          marginTop: 18,
-          paddingTop: 18,
-          borderTop: '1px solid #f3f4f6',
-          display: 'grid',
-          gap: 10,
-        }}
-      >
-        {items.map((item) => (
-          <div
-            key={item}
-            style={{
-              display: 'flex',
-              gap: 10,
-              alignItems: 'flex-start',
-              fontSize: 14,
-              color: '#374151',
-              lineHeight: 1.7,
-            }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                width: 18,
-                color: '#111827',
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              ✓
-            </span>
-            <span>{item}</span>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ marginTop: 22 }}>
-        <Link
-          href={ctaHref}
-          style={{
-            display: 'inline-block',
-            width: '100%',
-            textAlign: 'center',
-            textDecoration: 'none',
-            background: featured ? '#111827' : '#fff',
-            color: featured ? '#fff' : '#111827',
-            padding: '14px 16px',
-            borderRadius: 10,
-            fontWeight: 700,
-            border: featured ? 'none' : '1px solid #d1d5db',
-            boxSizing: 'border-box',
-          }}
-        >
-          {ctaLabel}
-        </Link>
-      </div>
-    </div>
-  )
-}
-
             <div
               style={{
                 marginTop: 18,
@@ -741,6 +583,164 @@ function PricingCard({
         </div>
       </section>
     </main>
+  )
+}
+
+function PricingCard({
+  name,
+  price,
+  period,
+  description,
+  badge,
+  items,
+  ctaLabel,
+  ctaHref,
+  featured,
+}: {
+  name: string
+  price: string
+  period: string
+  description: string
+  badge: string
+  items: string[]
+  ctaLabel: string
+  ctaHref: string
+  featured?: boolean
+}) {
+  return (
+    <div
+      style={{
+        border: featured ? '2px solid #111827' : '1px solid #e5e7eb',
+        borderRadius: 20,
+        padding: 22,
+        background: '#fff',
+        boxShadow: featured ? '0 16px 40px rgba(17,24,39,0.08)' : 'none',
+        position: 'relative',
+      }}
+    >
+      <div
+        style={{
+          display: 'inline-block',
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: 0.4,
+          color: featured ? '#111827' : '#4b5563',
+          background: featured ? '#e5e7eb' : '#f3f4f6',
+          borderRadius: 999,
+          padding: '6px 10px',
+          marginBottom: 14,
+        }}
+      >
+        {badge}
+      </div>
+
+      <h3
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          margin: 0,
+        }}
+      >
+        {name}
+      </h3>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          marginTop: 14,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 34,
+            fontWeight: 800,
+            lineHeight: 1,
+          }}
+        >
+          {price}
+        </span>
+        <span
+          style={{
+            fontSize: 14,
+            color: '#6b7280',
+          }}
+        >
+          {period}
+        </span>
+      </div>
+
+      <p
+        style={{
+          marginTop: 14,
+          marginBottom: 0,
+          color: '#4b5563',
+          lineHeight: 1.8,
+          fontSize: 14,
+        }}
+      >
+        {description}
+      </p>
+
+      <div
+        style={{
+          marginTop: 18,
+          paddingTop: 18,
+          borderTop: '1px solid #f3f4f6',
+          display: 'grid',
+          gap: 10,
+        }}
+      >
+        {items.map((item) => (
+          <div
+            key={item}
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              fontSize: 14,
+              color: '#374151',
+              lineHeight: 1.7,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 18,
+                color: '#111827',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              ✓
+            </span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <Link
+          href={ctaHref}
+          style={{
+            display: 'inline-block',
+            width: '100%',
+            textAlign: 'center',
+            textDecoration: 'none',
+            background: featured ? '#111827' : '#fff',
+            color: featured ? '#fff' : '#111827',
+            padding: '14px 16px',
+            borderRadius: 10,
+            fontWeight: 700,
+            border: featured ? 'none' : '1px solid #d1d5db',
+            boxSizing: 'border-box',
+          }}
+        >
+          {ctaLabel}
+        </Link>
+      </div>
+    </div>
   )
 }
 
