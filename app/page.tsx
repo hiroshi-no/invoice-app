@@ -47,18 +47,17 @@ export default function HomePage() {
       <section
         style={{
           borderBottom: '1px solid #e5e7eb',
-          background:
-            'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)',
+          background: 'linear-gradient(180deg, #f9fafb 0%, #ffffff 100%)',
         }}
       >
         <div
           style={{
             maxWidth: 1100,
             margin: '0 auto',
-            padding: '72px 16px 64px',
+            padding: 'clamp(40px, 7vw, 72px) 16px clamp(40px, 6vw, 64px)',
             display: 'grid',
-            gridTemplateColumns: '1.2fr 0.8fr',
-            gap: 32,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 'clamp(24px, 4vw, 32px)',
             alignItems: 'center',
           }}
         >
@@ -81,10 +80,11 @@ export default function HomePage() {
 
             <h1
               style={{
-                fontSize: 44,
+                fontSize: 'clamp(30px, 6vw, 44px)',
                 lineHeight: 1.25,
                 fontWeight: 800,
                 margin: 0,
+                wordBreak: 'keep-all',
               }}
             >
               Seikyu Note
@@ -97,7 +97,7 @@ export default function HomePage() {
             <p
               style={{
                 marginTop: 20,
-                fontSize: 17,
+                fontSize: 'clamp(15px, 2.2vw, 17px)',
                 lineHeight: 1.9,
                 color: '#4b5563',
                 maxWidth: 720,
@@ -152,7 +152,7 @@ export default function HomePage() {
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
-                gap: 18,
+                gap: 14,
                 marginTop: 22,
                 fontSize: 14,
                 color: '#6b7280',
@@ -170,9 +170,10 @@ export default function HomePage() {
             style={{
               border: '1px solid #e5e7eb',
               borderRadius: 20,
-              padding: 24,
+              padding: 'clamp(18px, 3vw, 24px)',
               background: '#fff',
               boxShadow: '0 16px 40px rgba(17,24,39,0.06)',
+              minWidth: 0,
             }}
           >
             <div
@@ -184,7 +185,9 @@ export default function HomePage() {
               }}
             >
               <div style={{ fontSize: 13, color: '#d1d5db' }}>サンプルイメージ</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>御見積書</div>
+              <div style={{ fontSize: 'clamp(20px, 4vw, 24px)', fontWeight: 800, marginTop: 6 }}>
+                御見積書
+              </div>
               <div style={{ fontSize: 13, color: '#d1d5db', marginTop: 8 }}>
                 見積番号: EST-2026-001
               </div>
@@ -201,13 +204,16 @@ export default function HomePage() {
                 marginTop: 18,
                 border: '1px solid #e5e7eb',
                 borderRadius: 12,
-                overflow: 'hidden',
+                overflowX: 'auto',
+                overflowY: 'hidden',
               }}
             >
-              <TableHeader />
-              <TableRow desc="デザイン作成" qty="1" unit="80,000円" total="80,000円" />
-              <TableRow desc="コーディング" qty="1" unit="120,000円" total="120,000円" />
-              <TableRow desc="公開準備" qty="1" unit="30,000円" total="30,000円" />
+              <div style={{ minWidth: 520 }}>
+                <TableHeader />
+                <TableRow desc="デザイン作成" qty="1" unit="80,000円" total="80,000円" />
+                <TableRow desc="コーディング" qty="1" unit="120,000円" total="120,000円" />
+                <TableRow desc="公開準備" qty="1" unit="30,000円" total="30,000円" />
+              </div>
             </div>
 
             <div
@@ -234,12 +240,12 @@ export default function HomePage() {
           style={{
             maxWidth: 1100,
             margin: '0 auto',
-            padding: '64px 16px 24px',
+            padding: 'clamp(40px, 6vw, 64px) 16px 24px',
           }}
         >
           <h2
             style={{
-              fontSize: 32,
+              fontSize: 'clamp(26px, 4vw, 32px)',
               lineHeight: 1.35,
               fontWeight: 800,
               margin: 0,
@@ -261,7 +267,7 @@ export default function HomePage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
               gap: 18,
               marginTop: 28,
             }}
@@ -274,6 +280,7 @@ export default function HomePage() {
                   borderRadius: 16,
                   padding: 20,
                   background: '#fff',
+                  minWidth: 0,
                 }}
               >
                 <h3
@@ -313,12 +320,12 @@ export default function HomePage() {
           style={{
             maxWidth: 1100,
             margin: '0 auto',
-            padding: '64px 16px',
+            padding: 'clamp(40px, 6vw, 64px) 16px',
           }}
         >
           <h2
             style={{
-              fontSize: 32,
+              fontSize: 'clamp(26px, 4vw, 32px)',
               lineHeight: 1.35,
               fontWeight: 800,
               margin: 0,
@@ -330,7 +337,7 @@ export default function HomePage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
               gap: 16,
               marginTop: 28,
             }}
@@ -382,7 +389,7 @@ export default function HomePage() {
           style={{
             maxWidth: 1100,
             margin: '0 auto',
-            padding: '64px 16px 80px',
+            padding: 'clamp(40px, 6vw, 64px) 16px 80px',
           }}
         >
           <div
@@ -390,12 +397,12 @@ export default function HomePage() {
               borderRadius: 20,
               background: '#111827',
               color: '#fff',
-              padding: '36px 28px',
+              padding: 'clamp(22px, 4vw, 36px) clamp(18px, 4vw, 28px)',
             }}
           >
             <h2
               style={{
-                fontSize: 30,
+                fontSize: 'clamp(24px, 4vw, 30px)',
                 lineHeight: 1.35,
                 fontWeight: 800,
                 margin: 0,
@@ -467,7 +474,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '84px 1fr',
+        gridTemplateColumns: '84px minmax(0, 1fr)',
         gap: 10,
         padding: '8px 0',
         borderBottom: '1px solid #f3f4f6',
@@ -475,7 +482,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       }}
     >
       <div style={{ color: '#6b7280' }}>{label}</div>
-      <div style={{ color: '#111827', fontWeight: 600 }}>{value}</div>
+      <div style={{ color: '#111827', fontWeight: 600, minWidth: 0 }}>{value}</div>
     </div>
   )
 }
@@ -548,6 +555,7 @@ function AmountRow({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 12,
         padding: '8px 0',
         borderBottom: strong ? 'none' : '1px solid #f3f4f6',
         fontWeight: strong ? 800 : 500,
