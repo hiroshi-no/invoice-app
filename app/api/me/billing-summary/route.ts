@@ -88,7 +88,7 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
     }
 
-    const orgId = await getCurrentOrgIdForUser(user.id)
+    const orgId = await getCurrentOrgIdForUser(supabase as any, user.id)
 
     const rawPlan = await getOrgPlan(supabase as any, orgId)
     const planKey: PlanKey =
