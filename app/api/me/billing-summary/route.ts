@@ -90,7 +90,14 @@ export async function GET() {
 
     const orgId = await getCurrentOrgIdForUser(supabase as any, user.id)
 
-    const rawPlan = await getOrgPlan(supabase as any, orgId)
+     if (!orgId) {
+       return NextResponse.json(
+         { ok: false, error: 'current_org_not_found' },
+         { status: 400 }
+       )
+     }
+
+     const rawPlan = await getOrgPlan(supabase as any, orgId)
     const planKey: PlanKey =
       typeof rawPlan === 'string'
         ? (rawPlan as PlanKey)
