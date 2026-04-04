@@ -24,7 +24,10 @@ async function createSupabase() {
   return createServerClient(url, key, {
     cookies: {
       getAll() {
-        return cookieStore.getAll().map((c: any) => ({ name: c.name, value: c.value }))
+        return cookieStore.getAll().map((c: any) => ({
+          name: c.name,
+          value: c.value,
+        }))
       },
       setAll() {
         /* noop */
