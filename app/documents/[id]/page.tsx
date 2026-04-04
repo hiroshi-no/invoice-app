@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr'
 import DocumentActions from './ui'
 import { calcTotals } from '@/lib/calc'
 import DocumentPdfSummaryCard from './DocumentPdfSummaryCard'
+import PlanStatusBanner from '@/app/components/PlanStatusBanner'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -173,6 +174,12 @@ export default async function DocumentDetailPage({ params }: Props) {
           {(doc as any).status === 'draft' && <Link href={`/documents/${documentId}/edit`}>編集</Link>}
         </div>
       </div>
+
+      <p style={{ color: '#666', marginTop: 12 }}>
+        発行可能数は現在のプランに応じて変わります。確定前に今月の残数を確認できます。
+      </p>
+
+      <PlanStatusBanner kind="document" />
 
       <div
         style={{

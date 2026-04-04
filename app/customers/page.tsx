@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
+import PlanStatusBanner from '@/app/components/PlanStatusBanner'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -86,6 +87,8 @@ export default async function CustomersPage() {
       <p style={{ color: '#666', marginTop: 12 }}>
         顧客マスタの一覧です。書類編集画面の「顧客マスタから選択」に表示される元データです。
       </p>
+
+      <PlanStatusBanner kind="customers" />
 
       {!customers || customers.length === 0 ? (
         <div style={emptyBox}>

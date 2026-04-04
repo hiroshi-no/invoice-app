@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import PlanStatusBanner from '@/app/components/PlanStatusBanner'
 
 type TemplateKey = 'classic' | 'minimal' | 'modern' | 'elegant' | 'corporate'
 
@@ -242,6 +243,8 @@ export default function BrandingSettings() {
 
   return (
   <section style={{ maxWidth: 820, margin: '0 auto', padding: '0 16px' }}>
+    <PlanStatusBanner kind="branding" />
+
     {err && (
       <div style={{ padding: 12, background: '#fee2e2', borderRadius: 8, marginBottom: 12 }}>
         {err}
@@ -386,7 +389,10 @@ export default function BrandingSettings() {
       style={templateCardStyle(templateKey === 'classic')}
     >
       <div style={templateCardHeaderStyle}>
-        <div style={templateCardTitleStyle}>classic</div>
+        <div>
+          <div style={templateCardTitleStyle}>classic</div>
+          <div style={templateCardUseStyle}>標準・提出用</div>
+        </div>
         <div style={templateCardBadgeStyle(templateKey === 'classic')}>
           {templateKey === 'classic' ? '選択中' : '選択'}
         </div>
@@ -411,8 +417,14 @@ export default function BrandingSettings() {
         </div>
       </div>
 
+      <div style={templateFeatureListStyle}>
+        <span style={templateFeatureChipStyle}>定番</span>
+        <span style={templateFeatureChipStyle}>正式書類向け</span>
+        <span style={templateFeatureChipStyle}>バランス型</span>
+      </div>
+
       <div style={templateDescStyle}>
-        しっかりした帳票感。提出用・正式書類向け。
+        しっかりした帳票感。提出用・標準フォーマットとして使いやすいテンプレートです。
       </div>
     </button>
 
@@ -422,7 +434,10 @@ export default function BrandingSettings() {
       style={templateCardStyle(templateKey === 'minimal')}
     >
       <div style={templateCardHeaderStyle}>
-        <div style={templateCardTitleStyle}>minimal</div>
+        <div>
+          <div style={templateCardTitleStyle}>minimal</div>
+          <div style={templateCardUseStyle}>シンプル・軽量</div>
+        </div>
         <div style={templateCardBadgeStyle(templateKey === 'minimal')}>
           {templateKey === 'minimal' ? '選択中' : '選択'}
         </div>
@@ -448,8 +463,14 @@ export default function BrandingSettings() {
         </div>
       </div>
 
+      <div style={templateFeatureListStyle}>
+        <span style={templateFeatureChipStyle}>余白重視</span>
+        <span style={templateFeatureChipStyle}>軽やか</span>
+        <span style={templateFeatureChipStyle}>控えめ</span>
+      </div>
+
       <div style={templateDescStyle}>
-        余白重視で軽やかな見た目。上品でシンプル。
+        線や装飾を抑えたシンプルな見た目。上品で軽い印象にしたい時に向いています。
       </div>
     </button>
 
@@ -459,7 +480,10 @@ export default function BrandingSettings() {
       style={templateCardStyle(templateKey === 'modern')}
     >
       <div style={templateCardHeaderStyle}>
-        <div style={templateCardTitleStyle}>modern</div>
+        <div>
+          <div style={templateCardTitleStyle}>modern</div>
+          <div style={templateCardUseStyle}>提案・スタートアップ向け</div>
+        </div>
         <div style={templateCardBadgeStyle(templateKey === 'modern')}>
           {templateKey === 'modern' ? '選択中' : '選択'}
         </div>
@@ -484,8 +508,14 @@ export default function BrandingSettings() {
         </div>
       </div>
 
+      <div style={templateFeatureListStyle}>
+        <span style={templateFeatureChipStyle}>カード風</span>
+        <span style={templateFeatureChipStyle}>現代的</span>
+        <span style={templateFeatureChipStyle}>提案向け</span>
+      </div>
+
       <div style={templateDescStyle}>
-        現代的で洗練された見た目。IT・スタートアップ・フリーランス向け。
+        現代的で洗練された見た目。IT・スタートアップ・フリーランスの提案書や請求書に向いています。
       </div>
     </button>
 
@@ -495,7 +525,10 @@ export default function BrandingSettings() {
       style={templateCardStyle(templateKey === 'elegant')}
     >
       <div style={templateCardHeaderStyle}>
-        <div style={templateCardTitleStyle}>elegant</div>
+        <div>
+          <div style={templateCardTitleStyle}>elegant</div>
+          <div style={templateCardUseStyle}>上品・高単価サービス向け</div>
+        </div>
         <div style={templateCardBadgeStyle(templateKey === 'elegant')}>
           {templateKey === 'elegant' ? '選択中' : '選択'}
         </div>
@@ -518,8 +551,14 @@ export default function BrandingSettings() {
         </div>
       </div>
 
+      <div style={templateFeatureListStyle}>
+        <span style={templateFeatureChipStyle}>高級感</span>
+        <span style={templateFeatureChipStyle}>細線</span>
+        <span style={templateFeatureChipStyle}>落ち着き</span>
+      </div>
+
       <div style={templateDescStyle}>
-        落ち着きと高級感を重視。サロン・ハンドメイド・上品なブランド向け。
+        落ち着きと高級感を重視したテンプレート。サロン、ハンドメイド、デザイン系の請求書に相性が良いです。
       </div>
     </button>
 
@@ -529,7 +568,10 @@ export default function BrandingSettings() {
       style={templateCardStyle(templateKey === 'corporate')}
     >
       <div style={templateCardHeaderStyle}>
-        <div style={templateCardTitleStyle}>corporate</div>
+        <div>
+          <div style={templateCardTitleStyle}>corporate</div>
+          <div style={templateCardUseStyle}>法人・BtoB向け</div>
+        </div>
         <div style={templateCardBadgeStyle(templateKey === 'corporate')}>
           {templateKey === 'corporate' ? '選択中' : '選択'}
         </div>
@@ -552,10 +594,20 @@ export default function BrandingSettings() {
         </div>
       </div>
 
+      <div style={templateFeatureListStyle}>
+        <span style={templateFeatureChipStyle}>業務向け</span>
+        <span style={templateFeatureChipStyle}>信頼感</span>
+        <span style={templateFeatureChipStyle}>表重視</span>
+      </div>
+
       <div style={templateDescStyle}>
-        実務的で信頼感のある見た目。法人営業・B2B・堅めの業種向け。
+        実務的で信頼感のある見た目。法人営業、BtoB、堅めの業種の請求書・見積書に向いています。
       </div>
     </button>
+  </div>
+
+  <div style={templateHelpBoxStyle}>
+    テンプレートはPDFプレビュー・PDF保存・履歴からのダウンロードに反映されます。
   </div>
 </div>
 
@@ -706,8 +758,8 @@ const primaryBtnStyle: React.CSSProperties = {
 }
 const templateGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 14,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 16,
 }
 
 function templateCardStyle(selected: boolean): React.CSSProperties {
@@ -715,26 +767,36 @@ function templateCardStyle(selected: boolean): React.CSSProperties {
     width: '100%',
     textAlign: 'left',
     border: selected ? '2px solid #111827' : '1px solid #d1d5db',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
     background: '#fff',
     cursor: 'pointer',
-    boxShadow: selected ? '0 8px 24px rgba(17,24,39,0.10)' : '0 2px 8px rgba(0,0,0,0.04)',
+    boxShadow: selected ? '0 12px 28px rgba(17,24,39,0.10)' : '0 2px 10px rgba(0,0,0,0.05)',
+    transition: 'all 0.15s ease',
   }
 }
 
 const templateCardHeaderStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
-  alignItems: 'center',
+  alignItems: 'flex-start',
   gap: 12,
   marginBottom: 12,
 }
 
 const templateCardTitleStyle: React.CSSProperties = {
-  fontSize: 15,
-  fontWeight: 700,
+  fontSize: 16,
+  fontWeight: 800,
   color: '#111827',
+  lineHeight: 1.2,
+  marginBottom: 4,
+}
+
+const templateCardUseStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#6b7280',
+  fontWeight: 600,
+  lineHeight: 1.5,
 }
 
 function templateCardBadgeStyle(selected: boolean): React.CSSProperties {
@@ -746,18 +808,47 @@ function templateCardBadgeStyle(selected: boolean): React.CSSProperties {
     border: '1px solid #e5e7eb',
     borderRadius: 999,
     padding: '4px 8px',
+    whiteSpace: 'nowrap',
   }
 }
 
+const templateFeatureListStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  marginTop: 12,
+}
+
+const templateFeatureChipStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#374151',
+  background: '#f8fafc',
+  border: '1px solid #e5e7eb',
+  borderRadius: 999,
+  padding: '4px 8px',
+  fontWeight: 700,
+}
+
 const templateDescStyle: React.CSSProperties = {
-  marginTop: 10,
+  marginTop: 12,
   fontSize: 12,
   color: '#6b7280',
-  lineHeight: 1.6,
+  lineHeight: 1.7,
+}
+
+const templateHelpBoxStyle: React.CSSProperties = {
+  marginTop: 12,
+  fontSize: 12,
+  color: '#6b7280',
+  lineHeight: 1.7,
+  background: '#f8fafc',
+  border: '1px solid #e5e7eb',
+  borderRadius: 12,
+  padding: '10px 12px',
 }
 
 const templatePreviewClassicStyle: React.CSSProperties = {
-  border: '1px solid #d1d5db',
+  border: '1px solid #e5e7eb',
   borderRadius: 12,
   padding: 12,
   background: '#fff',
