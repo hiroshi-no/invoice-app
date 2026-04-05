@@ -20,6 +20,7 @@ type BillingSummary = {
   stripeStatus: string | null
   currentPeriodEnd: string | null
   cancelAtPeriodEnd: boolean
+  scheduledCancelAt: string | null
 }
 
 function planLabel(planKey: PlanKey) {
@@ -221,20 +222,22 @@ export default function BillingSettingsClient({
   }, [checkoutStatus])
 
   const scheduledCancelText = useMemo(() => {
-    if (!billing) return null
-    if (!billing.cancelAtPeriodEnd) return null
-    if (billing.planKey === 'free') return null
+  if (!billing) return null
+  if (billing.planKey === 'free') return null
 
-    const endDate = formatJstDate(billing.currentPeriodEnd)
+  const hasScheduledCancel = billing.cancelAtPeriodEnd || Boolean(billing.scheduledCancelAt)
+  if (!hasScheduledCancel) return null
 
-    if (!endDate) {
-      return '現在の契約は次回更新されません。契約期間の終了後に Free に切り替わります。'
-    }
+  const endDate = formatJstDate(billing.scheduledCancelAt ?? billing.currentPeriodEnd)
 
-    return `現在の契約は次回更新されません。${endDate} に終了予定です。終了までは ${planLabel(
-      billing.planKey
-    )} を利用できます。`
-  }, [billing])
+  if (!endDate) {
+    return '現在の契約は次回更新されません。契約期間の終了後に Free に切り替わります。'
+  }
+
+  return `現在の契約は次回更新されません。${endDate} に終了予定です。終了までは ${planLabel(
+    billing.planKey
+  )} を利用できます。`
+}, [billing])
 
   return (
     <div style={{ marginTop: 16 }}>

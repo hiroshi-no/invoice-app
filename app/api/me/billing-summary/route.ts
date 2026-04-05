@@ -151,6 +151,7 @@ export async function GET() {
     let stripeStatus: string | null = subscription?.stripe_status ?? null
     let currentPeriodEnd: string | null = toIsoOrNull(subscription?.current_period_end ?? null)
     let cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end)
+    let scheduledCancelAt: string | null = null
     const stripeSubscriptionId = String(subscription?.stripe_subscription_id ?? '').trim()
 
     // Stripe を正本として補正
@@ -162,10 +163,18 @@ export async function GET() {
         stripeStatus = String(stripeSub.status ?? '').toLowerCase() || stripeStatus
         cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end)
 
-        const firstItem = stripeSub.items?.data?.[0] ?? null
-        const itemPeriodEnd = firstItem?.current_period_end ?? null
-        if (itemPeriodEnd) {
-          currentPeriodEnd = new Date(itemPeriodEnd * 1000).toISOString()
+        if (stripeSub.cancel_at) {
+          scheduledCancelAt = new Date(stripeSub.cancel_at * 1000).toISOString()
+        }
+ 
+        if ('current_period_end' in stripeSub && stripeSub.current_period_end) {
+          currentPeriodEnd = new Date((stripeSub as any).current_period_end * 1000).toISOString()
+        } else {
+          const firstItem = stripeSub.items?.data?.[0] ?? null
+          const itemPeriodEnd = firstItem?.current_period_end ?? null
+          if (itemPeriodEnd) {
+         currentPeriodEnd = new Date(itemPeriodEnd * 1000).toISOString()
+          }
         }
       } catch (e) {
         console.error('[billing-summary] stripe retrieve failed', {
@@ -194,6 +203,7 @@ export async function GET() {
         stripeStatus,
         currentPeriodEnd,
         cancelAtPeriodEnd,
+        scheduledCancelAt,
       },
     })
   } catch (e: any) {
