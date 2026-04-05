@@ -222,22 +222,22 @@ export default function BillingSettingsClient({
   }, [checkoutStatus])
 
   const scheduledCancelText = useMemo(() => {
-  if (!billing) return null
-  if (billing.planKey === 'free') return null
+    if (!billing) return null
+    if (billing.planKey === 'free') return null
 
-  const hasScheduledCancel = billing.cancelAtPeriodEnd || Boolean(billing.scheduledCancelAt)
-  if (!hasScheduledCancel) return null
+    const hasScheduledCancel = billing.cancelAtPeriodEnd || Boolean(billing.scheduledCancelAt)
+    if (!hasScheduledCancel) return null
 
-  const endDate = formatJstDate(billing.scheduledCancelAt ?? billing.currentPeriodEnd)
+    const endDate = formatJstDate(billing.scheduledCancelAt ?? billing.currentPeriodEnd)
 
-  if (!endDate) {
-    return '現在の契約は次回更新されません。契約期間の終了後に Free に切り替わります。'
-  }
+    if (!endDate) {
+      return '現在の契約は次回更新されません。契約期間の終了後に Free に切り替わります。'
+    }
 
-  return `現在の契約は次回更新されません。${endDate} に終了予定です。終了までは ${planLabel(
-    billing.planKey
-  )} を利用できます。`
-}, [billing])
+    return `現在の契約は次回更新されません。${endDate} に終了予定です。終了までは ${planLabel(
+      billing.planKey
+    )} を利用できます。`
+  }, [billing])
 
   return (
     <div style={{ marginTop: 16 }}>
