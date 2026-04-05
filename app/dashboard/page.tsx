@@ -25,11 +25,20 @@ export default async function DashboardPage() {
 
       {/* ✅ Branding（個人専用） */}
       <div style={{ marginTop: 12, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>ブランディング</div>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>ブランド設定</div>
         <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
           {hasLogo ? 'ロゴ設定済み' : 'ロゴ未設定'}
         </div>
         <Link href="/settings/branding">ロゴ設定へ</Link>
+      </div>
+
+      {/* ✅ 料金プランへの導線 */}
+      <div style={{ marginTop: 12, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>料金プラン</div>
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+          現在のプラン確認、Starter / Standard へのアップグレード、請求情報の管理ができます。
+        </div>
+        <Link href="/settings/billing">料金プランを見る</Link>
       </div>
 
       {/* ✅ 月次集計への導線（既存維持） */}

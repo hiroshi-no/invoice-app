@@ -18,7 +18,7 @@ export default function AppHeader() {
       >
          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Link href="/" style={{ fontWeight: 700, textDecoration: 'none', color: '#111' }}>
-            請求書アプリ
+            請求書ノート
           </Link>
 
           <nav style={{ display: 'flex', gap: 12, fontSize: 14 }}>
@@ -33,6 +33,9 @@ export default function AppHeader() {
             </Link>
             <Link href="/settings/branding" style={{ textDecoration: 'none', color: '#111' }}>
               ブランド設定
+            </Link>
+            <Link href="/settings/billing" style={{ textDecoration: 'none', color: '#111' }}>
+              料金プラン
             </Link>
             <Link href="/contact" style={{ textDecoration: 'none', color: '#111' }}>
               お問い合わせ
