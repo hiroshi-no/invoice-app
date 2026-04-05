@@ -106,7 +106,7 @@ export async function GET() {
     const yearMonth = getJstYearMonth()
     const limits = getUiLimits(planKey)
 
-    const [{ data: usage }, { count: customerCount }] = await Promise.all([
+    const [{ data: usage }, { count: customerCount }, { data: subscription }] = await Promise.all([
       supabase
         .from('usage_counters')
         .select('issued_count,saved_pdf_count')
@@ -117,6 +117,11 @@ export async function GET() {
         .from('customers')
         .select('*', { count: 'exact', head: true })
         .eq('org_id', orgId),
+      supabase
+        .from('subscriptions')
+        .select('stripe_status,current_period_end,cancel_at_period_end')
+        .eq('org_id', orgId)
+        .maybeSingle(),
     ])
 
     const issuedCount = usage?.issued_count ?? 0
@@ -149,6 +154,9 @@ export async function GET() {
         customerLimit: limits.customerLimit,
         customerRemaining,
         brandingEnabled: limits.brandingEnabled,
+        stripeStatus: subscription?.stripe_status ?? null,
+        currentPeriodEnd: subscription?.current_period_end ?? null,
+        cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
       },
     })
   } catch (e: any) {

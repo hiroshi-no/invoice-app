@@ -17,6 +17,9 @@ type BillingSummary = {
   customerLimit: number | null
   customerRemaining: number | null
   brandingEnabled: boolean
+  stripeStatus: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
 }
 
 function planLabel(planKey: PlanKey) {
@@ -66,6 +69,20 @@ function getPlanDescription(planKey: PlanKey) {
     pdf: '無制限',
     branding: '利用可',
   }
+}
+
+function formatJstDate(dateLike: string | null) {
+  if (!dateLike) return null
+
+  const d = new Date(dateLike)
+  if (Number.isNaN(d.getTime())) return null
+
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
 }
 
 export default function BillingSettingsClient({
@@ -203,6 +220,22 @@ export default function BillingSettingsClient({
     return null
   }, [checkoutStatus])
 
+  const scheduledCancelText = useMemo(() => {
+    if (!billing) return null
+    if (!billing.cancelAtPeriodEnd) return null
+    if (billing.planKey === 'free') return null
+
+    const endDate = formatJstDate(billing.currentPeriodEnd)
+
+    if (!endDate) {
+      return '現在の契約は次回更新されません。契約期間の終了後に Free に切り替わります。'
+    }
+
+    return `現在の契約は次回更新されません。${endDate} に終了予定です。終了までは ${planLabel(
+      billing.planKey
+    )} を利用できます。`
+  }, [billing])
+
   return (
     <div style={{ marginTop: 16 }}>
       {checkoutMessage ? (
@@ -217,6 +250,22 @@ export default function BillingSettingsClient({
           }}
         >
           {checkoutMessage.text}
+        </div>
+      ) : null}
+
+      {scheduledCancelText ? (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #f59e0b',
+            background: '#fffbeb',
+            color: '#92400e',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>契約中（次回更新なし）</div>
+          <div style={{ lineHeight: 1.7 }}>{scheduledCancelText}</div>
         </div>
       ) : null}
 
