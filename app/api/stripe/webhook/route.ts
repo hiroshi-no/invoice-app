@@ -191,8 +191,9 @@ async function handleSubscriptionChanged(
   const stripeCustomerId = normalizeStripeId(subscription.customer)
   const stripeSubscriptionId = normalizeStripeId(subscription.id)
   const stripeStatus = String(subscription.status ?? '').toLowerCase()
-  const stripePriceId = subscription.items?.data?.[0]?.price?.id ?? null
-  const currentPeriodEnd = unixToIso(subscription.current_period_end ?? null)
+  const firstItem = subscription.items?.data?.[0] ?? null
+  const stripePriceId = firstItem?.price?.id ?? null
+  const currentPeriodEnd = unixToIso(firstItem?.current_period_end ?? null)
   const cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end)
 
   const entitled = isEntitledStripeStatus(stripeStatus)
