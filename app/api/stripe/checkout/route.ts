@@ -109,6 +109,14 @@ export async function POST(request: NextRequest) {
     const priceId = getStripePriceId(requestedPlan)
     const appUrl = getAppUrl(request)
 
+    console.log('[stripe/checkout] start', {
+      requestedPlan,
+      orgId,
+      hasStripeCustomerId: Boolean(subRow?.stripe_customer_id),
+      appUrl,
+      priceId,
+    })
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
@@ -144,7 +152,12 @@ export async function POST(request: NextRequest) {
       ok: true,
       url: session.url,
     })
-  } catch (e: any) {
+    } catch (e: any) {
+    console.error('[stripe/checkout] failed', {
+      message: String(e?.message ?? e),
+      stack: e?.stack ? String(e.stack) : undefined,
+    })
+
     return NextResponse.json(
       {
         ok: false,
