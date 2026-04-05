@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 
 import { getOrgPlan } from '@/lib/billing/getOrgPlan'
 import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
+import { getStripeServer } from '@/lib/stripe/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -78,6 +79,12 @@ async function createSupabase() {
   })
 }
 
+function toIsoOrNull(v: any) {
+  if (!v) return null
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 export async function GET() {
   try {
     const supabase = await createSupabase()
@@ -119,7 +126,9 @@ export async function GET() {
         .eq('org_id', orgId),
       supabase
         .from('subscriptions')
-        .select('stripe_status,current_period_end,cancel_at_period_end')
+        .select(
+          'stripe_status,current_period_end,cancel_at_period_end,stripe_subscription_id'
+        )
         .eq('org_id', orgId)
         .maybeSingle(),
     ])
@@ -139,6 +148,34 @@ export async function GET() {
         ? null
         : Math.max(limits.customerLimit - currentCustomerCount, 0)
 
+    let stripeStatus: string | null = subscription?.stripe_status ?? null
+    let currentPeriodEnd: string | null = toIsoOrNull(subscription?.current_period_end ?? null)
+    let cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end)
+    const stripeSubscriptionId = String(subscription?.stripe_subscription_id ?? '').trim()
+
+    // Stripe を正本として補正
+    if (stripeSubscriptionId) {
+      try {
+        const stripe = getStripeServer()
+        const stripeSub = await stripe.subscriptions.retrieve(stripeSubscriptionId)
+
+        stripeStatus = String(stripeSub.status ?? '').toLowerCase() || stripeStatus
+        cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end)
+
+        const firstItem = stripeSub.items?.data?.[0] ?? null
+        const itemPeriodEnd = firstItem?.current_period_end ?? null
+        if (itemPeriodEnd) {
+          currentPeriodEnd = new Date(itemPeriodEnd * 1000).toISOString()
+        }
+      } catch (e) {
+        console.error('[billing-summary] stripe retrieve failed', {
+          orgId,
+          stripeSubscriptionId,
+          message: e instanceof Error ? e.message : String(e),
+        })
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       billing: {
@@ -154,9 +191,9 @@ export async function GET() {
         customerLimit: limits.customerLimit,
         customerRemaining,
         brandingEnabled: limits.brandingEnabled,
-        stripeStatus: subscription?.stripe_status ?? null,
-        currentPeriodEnd: subscription?.current_period_end ?? null,
-        cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+        stripeStatus,
+        currentPeriodEnd,
+        cancelAtPeriodEnd,
       },
     })
   } catch (e: any) {
