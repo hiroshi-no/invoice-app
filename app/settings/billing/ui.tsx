@@ -241,9 +241,6 @@ export default function BillingSettingsClient({
 
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ marginBottom: 16, color: 'red', fontWeight: 700 }}>
-        DEBUG billing ui deployed
-      </div>
 
       {checkoutMessage ? (
         <div
