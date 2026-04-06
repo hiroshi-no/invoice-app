@@ -52,19 +52,19 @@ export async function POST(req: NextRequest) {
      } = await supabase.auth.getUser()
 
     if (userError || !user) {
-      return respondJson({ ok: false, error: 'unauthorized' }, { status: 401 })
+      return respondJson(cookiesToSet, { ok: false, error: 'unauthorized' }, { status: 401 })
     }
 
     const orgId = await getCurrentOrgIdForUser(supabase as any, user.id)
     if (!orgId) {
-      return respondJson({ ok: false, error: 'org_not_found' }, { status: 400 })
+      return respondJson(cookiesToSet, { ok: false, error: 'org_not_found' }, { status: 400 })
     }
 
     const body = await req.json().catch(() => null)
     const targetPlanKey = body?.targetPlanKey as StripePlanKey | undefined
 
     if (targetPlanKey !== 'starter' && targetPlanKey !== 'standard') {
-      return respondJson({ ok: false, error: 'invalid_target_plan' }, { status: 400 })
+      return respondJson(cookiesToSet, { ok: false, error: 'invalid_target_plan' }, { status: 400 })
     }
 
     const targetPriceId = getStripePriceId(targetPlanKey)
@@ -87,28 +87,29 @@ export async function POST(req: NextRequest) {
 
     if (currentSubError) {
       return respondJson(
+        cookiesToSet,
         { ok: false, error: 'subscription_select_failed', detail: currentSubError.message },
         { status: 500 }
       )
     }
 
     if (!currentSub?.stripe_subscription_id) {
-      return respondJson({ ok: false, error: 'stripe_subscription_not_found' }, { status: 400 })
+      return respondJson(cookiesToSet, { ok: false, error: 'stripe_subscription_not_found' }, { status: 400 })
     }
 
     if (currentSub.plan_key === targetPlanKey) {
-      return respondJson({
-        ok: true,
-        changed: false,
-        billing: {
-          planKey: currentSub.plan_key,
-          stripeStatus: currentSub.stripe_status ?? null,
-          stripePriceId: currentSub.stripe_price_id ?? null,
-          currentPeriodEnd: currentSub.current_period_end ?? null,
-          cancelAtPeriodEnd: !!currentSub.cancel_at_period_end,
-        },
-      })
-    }
+     return respondJson(cookiesToSet, {
+       ok: true,
+       changed: false,
+       billing: {
+         planKey: currentSub.plan_key,
+         stripeStatus: currentSub.stripe_status ?? null,
+         stripePriceId: currentSub.stripe_price_id ?? null,
+         currentPeriodEnd: currentSub.current_period_end ?? null,
+        cancelAtPeriodEnd: !!currentSub.cancel_at_period_end,
+       },
+     })
+   }
 
     const subscription = await stripe.subscriptions.retrieve(currentSub.stripe_subscription_id, {
       expand: ['items.data.price'],
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     const firstItem = subscription.items?.data?.[0] ?? null
     if (!firstItem?.id) {
-      return respondJson({ ok: false, error: 'subscription_item_not_found' }, { status: 400 })
+     return respondJson(cookiesToSet, { ok: false, error: 'subscription_item_not_found' }, { status: 400 })
     }
 
     const updated = await stripe.subscriptions.update(subscription.id, {
@@ -159,31 +160,33 @@ export async function POST(req: NextRequest) {
       .upsert(row, { onConflict: 'org_id' })
 
     if (upsertError) {
-      return respondJson(
-        { ok: false, error: 'subscription_upsert_failed', detail: upsertError.message },
-        { status: 500 }
-      )
-    }
+     return respondJson(
+       cookiesToSet,
+       { ok: false, error: 'subscription_upsert_failed', detail: upsertError.message },
+       { status: 500 }
+     )
+   }
 
-    return respondJson({
-      ok: true,
-      changed: true,
-      billing: {
-        planKey: nextPlanKey,
-        stripeStatus: nextStripeStatus,
-        stripePriceId: updatedPriceId,
-        currentPeriodEnd: nextCurrentPeriodEnd,
-        cancelAtPeriodEnd: !!updated.cancel_at_period_end,
-      },
-    })
+    return respondJson(cookiesToSet, {
+     ok: true,
+     changed: true,
+     billing: {
+       planKey: nextPlanKey,
+       stripeStatus: nextStripeStatus,
+       stripePriceId: updatedPriceId,
+       currentPeriodEnd: nextCurrentPeriodEnd,
+       cancelAtPeriodEnd: !!updated.cancel_at_period_end,
+     },
+   })
   } catch (e: any) {
     return respondJson(
-      {
-        ok: false,
-        error: 'stripe_change_plan_failed',
-        detail: e?.message ?? 'unknown_error',
-      },
-      { status: 500 }
-    )
+     cookiesToSet,
+     {
+       ok: false,
+       error: 'stripe_change_plan_failed',
+      detail: e?.message ?? 'unknown_error',
+     },
+  { status: 500 }
+)
   }
 }
