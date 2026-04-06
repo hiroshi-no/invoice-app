@@ -156,14 +156,14 @@ export default function PrivacyPage() {
 
         <Section title="12. お問い合わせ窓口">
           <ul>
-            <li>事業者名：【事業者名】</li>
-            <li>代表者名：【代表者名（任意）】</li>
-            <li>メールアドレス：【問い合わせメールアドレス】</li>
+            <li>事業者名：【株式会社モノプロジェクト】</li>
+            <li>代表者名：【野口浩】</li>
+            <li>メールアドレス：【hiroshi.ni@tea.ocn.ne.jp】</li>
             <li>お問い合わせフォーム：https://seikyunote.com/contact</li>
-            <li>住所：【住所】</li>
-            <li>電話番号：【電話番号】</li>
-            <li>制定日：【2026年○月○日】</li>
-            <li>最終改定日：【2026年○月○日】</li>
+            <li>住所：【大阪府東大阪市本町10-7-101】</li>
+            <li>電話番号：【072-983-6546】</li>
+            <li>制定日：【2026年04月06日】</li>
+            <li>最終改定日：【2026年04月06日】</li>
           </ul>
         </Section>
       </div>

@@ -22,25 +22,25 @@ export default function LegalPage() {
         </h1>
 
         <Section title="事業者名">
-          <p>【事業者名】</p>
+          <p>【株式会社モノプロジェクト】</p>
         </Section>
 
         <Section title="代表者">
-          <p>【代表者名】</p>
+          <p>【野口浩】</p>
         </Section>
 
         <Section title="所在地">
-          <p>【郵便番号・住所】</p>
+          <p>【大阪府東大阪市本町10-7-101】</p>
         </Section>
 
         <Section title="電話番号">
-          <p>【電話番号】</p>
+          <p>【072-983-6546】</p>
           <p>※受付時間：【平日10:00〜17:00】</p>
           <p>※お問い合わせは原則としてメールまたはお問い合わせフォームよりお願いいたします。</p>
         </Section>
 
         <Section title="メールアドレス">
-          <p>【問い合わせメールアドレス】</p>
+          <p>【hiroshi.ni@tea.ocn.ne.jp】</p>
         </Section>
 
         <Section title="お問い合わせフォーム">
@@ -56,8 +56,8 @@ export default function LegalPage() {
           <p>例：</p>
           <ul>
             <li>フリープラン：0円</li>
-            <li>スタンダードプラン：月額【○○円】</li>
-            <li>プレミアムプラン：月額【○○円】</li>
+            <li>スタンダードプラン：月額【980円】</li>
+            <li>プレミアムプラン：月額【2980円】</li>
           </ul>
         </Section>
 
@@ -75,7 +75,7 @@ export default function LegalPage() {
 
         <Section title="支払時期">
           <p>【クレジットカード決済の場合は申込時または各更新日に課金】</p>
-          <p>【銀行振込の場合は申込後○日以内】</p>
+          <p>【銀行振込の場合は申込後10日以内】</p>
         </Section>
 
         <Section title="サービス提供時期">
@@ -99,7 +99,7 @@ export default function LegalPage() {
             </li>
             <li>
               期間途中で解約した場合でも、当月分または契約期間分の利用料金の日割返金は
-              【する / しない】ものとします。
+              しないものとします。
             </li>
             <li>
               法令上認められる場合を除き、決済完了後の返金には応じません。
@@ -134,8 +134,8 @@ export default function LegalPage() {
         </Section>
 
         <section style={{ marginTop: 40 }}>
-          <p>制定日：【2026年○月○日】</p>
-          <p>最終改定日：【2026年○月○日】</p>
+          <p>制定日：【2026年04月06日】</p>
+          <p>最終改定日：【2026年04月06日】</p>
         </section>
       </div>
     </main>

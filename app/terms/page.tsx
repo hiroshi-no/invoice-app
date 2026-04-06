@@ -209,10 +209,10 @@ export default function TermsPage() {
         </Section>
 
         <section style={{ marginTop: 40 }}>
-          <p>制定日：【2026年○月○日】</p>
-          <p>最終改定日：【2026年○月○日】</p>
-          <p>事業者名：【事業者名】</p>
-          <p>お問い合わせ先：【問い合わせメールアドレス】</p>
+          <p>制定日：【2026年04月06日】</p>
+          <p>最終改定日：【2026年04月06日】</p>
+          <p>事業者名：【株式会社モノプロジェクト】</p>
+          <p>お問い合わせ先：【hiroshi.ni@tea.ocn.ne.jp】</p>
         </section>
       </div>
     </main>
