@@ -44,12 +44,12 @@ function normalizeSubscriptionRow(input: {
 export async function POST(req: NextRequest) {
   try {
     const stripe = getStripeServer()
-    const supabase = await createSupabaseServerClient(req)
+    const { supabase, cookiesToSet } = await createSupabaseServerClient(req)
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+     const {
+       data: { user },
+       error: userError,
+     } = await supabase.auth.getUser()
 
     if (userError || !user) {
       return respondJson({ ok: false, error: 'unauthorized' }, { status: 401 })
