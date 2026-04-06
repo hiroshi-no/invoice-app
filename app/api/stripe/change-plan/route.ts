@@ -7,7 +7,11 @@ import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { respondJson } from '@/lib/api/response'
 import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
 import { getStripeServer } from '@/lib/stripe/server'
-import { getStripePriceId, getPlanKeyFromPriceId, type PlanKey } from '@/lib/stripe/plans'
+import {
+  getStripePriceId,
+  getPlanKeyFromPriceId,
+  type StripePlanKey,
+} from '@/lib/stripe/plans'
 
 function unixToIso(v: number | null | undefined) {
   return typeof v === 'number' ? new Date(v * 1000).toISOString() : null
@@ -15,7 +19,7 @@ function unixToIso(v: number | null | undefined) {
 
 function normalizeSubscriptionRow(input: {
   orgId: string
-  planKey: PlanKey
+  planKey: StripePlanKey
   stripeStatus: string | null
   stripeCustomerId: string | null
   stripeSubscriptionId: string
@@ -57,16 +61,13 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => null)
-    const targetPlanKey = body?.targetPlanKey as PlanKey | undefined
+    const targetPlanKey = body?.targetPlanKey as StripePlanKey | undefined
 
     if (targetPlanKey !== 'starter' && targetPlanKey !== 'standard') {
       return respondJson({ ok: false, error: 'invalid_target_plan' }, { status: 400 })
     }
 
     const targetPriceId = getStripePriceId(targetPlanKey)
-    if (!targetPriceId) {
-      return respondJson({ ok: false, error: 'missing_target_price_id' }, { status: 500 })
-    }
 
     const { data: currentSub, error: currentSubError } = await supabase
       .from('subscriptions')
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
     const updatedPriceId =
       typeof updatedFirstItem?.price?.id === 'string' ? updatedFirstItem.price.id : targetPriceId
 
-    const nextPlanKey = getPlanKeyFromPriceId(updatedPriceId) ?? targetPlanKey
+    const nextPlanKey = getPlanKeyFromPriceId(updatedPriceId)
     const nextCurrentPeriodEnd =
       unixToIso(updatedFirstItem?.current_period_end ?? null) ??
       unixToIso((updated as any)?.current_period_end ?? null)
