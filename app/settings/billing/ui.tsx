@@ -134,40 +134,71 @@ export default function BillingSettingsClient({
     }
   }, [])
 
-  async function startCheckout(planKey: PlanKey) {
-    if (planKey === 'free') return
+  async function postJson(url: string, body?: any) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    credentials: 'include',
+    body: body ? JSON.stringify(body) : undefined,
+  })
 
-    setBusyPlan(planKey)
-    setError(null)
+  const json = await res.json().catch(() => ({}))
 
-    try {
-      const res = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ planKey }),
+  if (!res.ok || !json?.ok) {
+    throw new Error(
+      typeof json?.message === 'string' && json.message.trim()
+        ? json.message
+        : typeof json?.error === 'string' && json.error.trim()
+          ? json.error
+          : 'request_failed'
+    )
+  }
+
+  return json
+}
+
+async function handleSelectPlan(planKey: PlanKey) {
+  if (planKey === 'free') return
+
+  setBusyPlan(planKey)
+  setError(null)
+
+  try {
+    if (billing?.planKey === 'starter' && planKey === 'standard') {
+      await postJson('/api/stripe/change-plan', {
+        targetPlanKey: 'standard',
       })
 
-      const json = await res.json().catch(() => ({}))
-
-      if (!res.ok || !json?.ok || !json?.url) {
-        setError(
-          typeof json?.message === 'string' && json.message.trim()
-            ? json.message
-            : 'Stripe Checkout の開始に失敗しました。'
-        )
-        return
-      }
-
-      window.location.href = String(json.url)
-    } catch {
-      setError('Stripe Checkout の開始に失敗しました。')
-    } finally {
-      setBusyPlan(null)
+      window.location.reload()
+      return
     }
+
+    const json = await postJson('/api/stripe/checkout', { planKey })
+
+    if (!json?.url) {
+      setError('Stripe Checkout の開始に失敗しました。')
+      return
+    }
+
+    window.location.href = String(json.url)
+  } catch (e: any) {
+    if (billing?.planKey === 'starter' && planKey === 'standard') {
+      setError(
+        typeof e?.message === 'string' && e.message.trim()
+          ? e.message
+          : 'Standard への変更に失敗しました。'
+      )
+    } else {
+      setError(
+        typeof e?.message === 'string' && e.message.trim()
+          ? e.message
+          : 'Stripe Checkout の開始に失敗しました。'
+      )
+    }
+  } finally {
+    setBusyPlan(null)
   }
+}
 
   async function openPortal() {
     setPortalBusy(true)
@@ -395,7 +426,7 @@ export default function BillingSettingsClient({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => startCheckout(planKey)}
+                    onClick={() => handleSelectPlan(planKey)}
                     disabled={disabled}
                     style={{
                       width: '100%',
@@ -410,10 +441,12 @@ export default function BillingSettingsClient({
                     }}
                   >
                     {busyPlan === planKey
-                      ? '移動中…'
-                      : current
-                        ? '現在利用中です'
-                        : `${planLabel(planKey)} を選択`}
+                       ? '移動中…'
+                       : current
+                       ? '現在利用中です'
+                       : billing?.planKey === 'starter' && planKey === 'standard'
+                       ? 'Standard に変更'
+                       : `${planLabel(planKey)} を選択`}
                   </button>
                 )}
               </div>
