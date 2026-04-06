@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { respondJson } from '@/lib/api/response'
 import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
-import { stripe } from '@/lib/stripe/server'
+import { getStripeServer } from '@/lib/stripe/server'
 import { getStripePriceId, getPlanKeyFromPriceId, type PlanKey } from '@/lib/stripe/plans'
 
 function unixToIso(v: number | null | undefined) {
@@ -39,6 +39,7 @@ function normalizeSubscriptionRow(input: {
 
 export async function POST(req: NextRequest) {
   try {
+    const stripe = getStripeServer()
     const supabase = await createSupabaseServerClient()
 
     const {
