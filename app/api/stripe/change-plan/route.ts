@@ -179,14 +179,14 @@ export async function POST(req: NextRequest) {
      },
    })
   } catch (e: any) {
-    return respondJson(
-     cookiesToSet,
-     {
-       ok: false,
-       error: 'stripe_change_plan_failed',
+  return respondJson(
+    [],
+    {
+      ok: false,
+      error: 'stripe_change_plan_failed',
       detail: e?.message ?? 'unknown_error',
-     },
-  { status: 500 }
-)
-  }
+    },
+    { status: 500 }
+  )
+}
 }
