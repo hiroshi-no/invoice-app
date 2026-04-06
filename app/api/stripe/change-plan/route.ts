@@ -44,7 +44,7 @@ function normalizeSubscriptionRow(input: {
 export async function POST(req: NextRequest) {
   try {
     const stripe = getStripeServer()
-    const supabase = await createSupabaseServerClient()
+    const supabase = await createSupabaseServerClient(req)
 
     const {
       data: { user },
