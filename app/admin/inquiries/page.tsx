@@ -145,10 +145,7 @@ export default async function AdminInquiriesPage({ searchParams }: Props) {
     return null
   }
 
-  const resolvedSearchParams =
-    searchParams && typeof (searchParams as any)?.then === 'function'
-      ? await (searchParams as Promise<SearchParams>)
-      : (searchParams ?? {})
+  const resolvedSearchParams: SearchParams = await Promise.resolve(searchParams ?? {})
 
   const status = normalizeStatus(resolvedSearchParams.status)
    const q = normalizeKeyword(resolvedSearchParams.q)
