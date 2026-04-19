@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 
 type Customer = { id: string; name: string }
 type CustomerHonorific = '' | '御中' | '様'
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+type InteriorBillingType = '' | 'advance' | 'partial' | 'final'
 
 export type DocumentMetaDraft = {
   customer_id?: string | null
@@ -14,6 +15,8 @@ export type DocumentMetaDraft = {
   title?: string | null
   notes?: string | null
   due_date?: string | null
+  template_profile?: TemplateProfile | null
+  extended_meta?: Record<string, unknown> | null
 }
 
 type NormalizedMetaDraft = {
@@ -23,6 +26,8 @@ type NormalizedMetaDraft = {
   title: string
   notes: string
   due_date: string
+  template_profile: TemplateProfile
+  extended_meta: Record<string, unknown>
 }
 
 function getDueDateLabel(docType?: string | null) {
@@ -41,6 +46,153 @@ function toHonorific(value: string | null | undefined): CustomerHonorific {
   return value === '御中' || value === '様' ? value : ''
 }
 
+function toTemplateProfile(value: unknown): TemplateProfile {
+  return value === 'creator' || value === 'interior' || value === 'standard'
+    ? value
+    : 'standard'
+}
+
+function toObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+function sortDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortDeep)
+  }
+
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    const sorted: Record<string, unknown> = {}
+
+    for (const key of Object.keys(obj).sort()) {
+      sorted[key] = sortDeep(obj[key])
+    }
+
+    return sorted
+  }
+
+  return value
+}
+
+function stableJson(value: unknown) {
+  return JSON.stringify(sortDeep(value))
+}
+
+function getStringMeta(
+  meta: Record<string, unknown>,
+  key: string,
+  fallback = ''
+) {
+  const v = meta[key]
+  return typeof v === 'string' ? v : fallback
+}
+
+function getNumberMeta(
+  meta: Record<string, unknown>,
+  key: string,
+  fallback: number | '' = ''
+): number | '' {
+  const v = meta[key]
+  if (v == null || v === '') return fallback
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function toBillingType(value: unknown): InteriorBillingType {
+  return value === 'advance' || value === 'partial' || value === 'final'
+    ? value
+    : ''
+}
+
+function buildCreatorMeta(params: {
+  projectName: string
+  deliveryDueDate: string
+  deliverablesSummary: string
+  revisionRoundsIncluded: number | ''
+  usageScopeNote: string
+  rightsTreatmentNote: string
+}) {
+  const out: Record<string, unknown> = {}
+
+  if (params.projectName) out.project_name = params.projectName
+  if (params.deliveryDueDate) out.delivery_due_date = params.deliveryDueDate
+  if (params.deliverablesSummary) out.deliverables_summary = params.deliverablesSummary
+  if (params.revisionRoundsIncluded !== '') {
+    out.revision_rounds_included = Number(params.revisionRoundsIncluded)
+  }
+  if (params.usageScopeNote) out.usage_scope_note = params.usageScopeNote
+  if (params.rightsTreatmentNote) out.rights_treatment_note = params.rightsTreatmentNote
+
+  return out
+}
+
+function buildInteriorMeta(params: {
+  projectName: string
+  siteName: string
+  constructionPeriodFrom: string
+  constructionPeriodTo: string
+  billingType: InteriorBillingType
+  previousBilledAmount: number | ''
+  currentBilledAmount: number | ''
+  remainingAmount: number | ''
+}) {
+  const out: Record<string, unknown> = {}
+
+  if (params.projectName) out.project_name = params.projectName
+  if (params.siteName) out.site_name = params.siteName
+  if (params.constructionPeriodFrom) {
+    out.construction_period_from = params.constructionPeriodFrom
+  }
+  if (params.constructionPeriodTo) {
+    out.construction_period_to = params.constructionPeriodTo
+  }
+  if (params.billingType) out.billing_type = params.billingType
+  if (params.previousBilledAmount !== '') {
+    out.previous_billed_amount = Number(params.previousBilledAmount)
+  }
+  if (params.currentBilledAmount !== '') {
+    out.current_billed_amount = Number(params.currentBilledAmount)
+  }
+  if (params.remainingAmount !== '') {
+    out.remaining_amount = Number(params.remainingAmount)
+  }
+
+  return out
+}
+
+function toComparableExtendedMeta(
+  templateProfile: TemplateProfile,
+  meta: Record<string, unknown>
+): Record<string, unknown> {
+  if (templateProfile === 'creator') {
+    return buildCreatorMeta({
+      projectName: getStringMeta(meta, 'project_name'),
+      deliveryDueDate: getStringMeta(meta, 'delivery_due_date'),
+      deliverablesSummary: getStringMeta(meta, 'deliverables_summary'),
+      revisionRoundsIncluded: getNumberMeta(meta, 'revision_rounds_included'),
+      usageScopeNote: getStringMeta(meta, 'usage_scope_note'),
+      rightsTreatmentNote: getStringMeta(meta, 'rights_treatment_note'),
+    })
+  }
+
+  if (templateProfile === 'interior') {
+    return buildInteriorMeta({
+      projectName: getStringMeta(meta, 'project_name'),
+      siteName: getStringMeta(meta, 'site_name'),
+      constructionPeriodFrom: getStringMeta(meta, 'construction_period_from'),
+      constructionPeriodTo: getStringMeta(meta, 'construction_period_to'),
+      billingType: toBillingType(meta.billing_type),
+      previousBilledAmount: getNumberMeta(meta, 'previous_billed_amount'),
+      currentBilledAmount: getNumberMeta(meta, 'current_billed_amount'),
+      remainingAmount: getNumberMeta(meta, 'remaining_amount'),
+    })
+  }
+
+  return {}
+}
+
 export function DocumentMetaForm({
   documentId,
   initial,
@@ -54,7 +206,6 @@ export function DocumentMetaForm({
   onDraftChange?: (draft: DocumentMetaDraft) => void
   docType?: string | null
 }) {
-  const router = useRouter()
 
   const DIRTY_KEY = useMemo(() => `invoice:doc:${documentId}:meta_dirty`, [documentId])
   const dueDateLabel = getDueDateLabel(docType)
@@ -67,30 +218,56 @@ export function DocumentMetaForm({
     title: String(v.title ?? ''),
     notes: String(v.notes ?? ''),
     due_date: String(v.due_date ?? ''),
+    template_profile: toTemplateProfile(v.template_profile),
+    extended_meta: toObject(v.extended_meta),
   })
 
-  const initialNormalized = useMemo(
-    () =>
-      normalize({
-        customer_id: initial.customer_id ?? '',
-        customer_name: initial.customer_name ?? '',
-        customer_honorific: initial.customer_honorific ?? null,
-        title: initial.title ?? '',
-        notes: initial.notes ?? '',
-        due_date: initial.due_date ?? '',
-      }),
-    [
-      initial.customer_id,
-      initial.customer_name,
-      initial.customer_honorific,
-      initial.title,
-      initial.notes,
-      initial.due_date,
-    ]
+  const initialTemplateProfile = useMemo(
+    () => toTemplateProfile(initial.template_profile),
+    [initial.template_profile]
   )
 
-  const initialBaseState = useMemo(
-    () => JSON.stringify(initialNormalized),
+  const initialExtendedMeta = useMemo(
+    () => toObject(initial.extended_meta),
+    [initial.extended_meta]
+  )
+
+const [persistedTemplateProfile, setPersistedTemplateProfile] = useState<TemplateProfile>(
+  initialTemplateProfile
+)
+const [persistedExtendedMeta, setPersistedExtendedMeta] = useState<Record<string, unknown>>(
+  initialExtendedMeta
+)
+
+  const initialNormalized = useMemo(
+  () =>
+    normalize({
+      customer_id: initial.customer_id ?? '',
+      customer_name: initial.customer_name ?? '',
+      customer_honorific: initial.customer_honorific ?? null,
+      title: initial.title ?? '',
+      notes: initial.notes ?? '',
+      due_date: initial.due_date ?? '',
+      template_profile: initialTemplateProfile,
+      extended_meta: toComparableExtendedMeta(
+        initialTemplateProfile,
+        initialExtendedMeta
+      ),
+    }),
+  [
+    initial.customer_id,
+    initial.customer_name,
+    initial.customer_honorific,
+    initial.title,
+    initial.notes,
+    initial.due_date,
+    initialTemplateProfile,
+    initialExtendedMeta,
+  ]
+)
+
+   const initialBaseState = useMemo(
+    () => stableJson(initialNormalized),
     [initialNormalized]
   )
 
@@ -102,6 +279,54 @@ export function DocumentMetaForm({
   const [title, setTitle] = useState<string>(initial.title ?? '')
   const [notes, setNotes] = useState<string>(initial.notes ?? '')
   const [dueDate, setDueDate] = useState<string>(initial.due_date ?? '')
+
+  const [templateProfile, setTemplateProfile] = useState<TemplateProfile>(
+    initialTemplateProfile
+  )
+
+  const [creatorProjectName, setCreatorProjectName] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'project_name')
+  )
+  const [creatorDeliveryDueDate, setCreatorDeliveryDueDate] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'delivery_due_date')
+  )
+  const [creatorDeliverablesSummary, setCreatorDeliverablesSummary] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'deliverables_summary')
+  )
+  const [creatorRevisionRoundsIncluded, setCreatorRevisionRoundsIncluded] = useState<
+    number | ''
+  >(getNumberMeta(initialExtendedMeta, 'revision_rounds_included'))
+  const [creatorUsageScopeNote, setCreatorUsageScopeNote] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'usage_scope_note')
+  )
+  const [creatorRightsTreatmentNote, setCreatorRightsTreatmentNote] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'rights_treatment_note')
+  )
+
+  const [interiorProjectName, setInteriorProjectName] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'project_name')
+  )
+  const [siteName, setSiteName] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'site_name')
+  )
+  const [constructionPeriodFrom, setConstructionPeriodFrom] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'construction_period_from')
+  )
+  const [constructionPeriodTo, setConstructionPeriodTo] = useState<string>(
+    getStringMeta(initialExtendedMeta, 'construction_period_to')
+  )
+  const [billingType, setBillingType] = useState<InteriorBillingType>(
+    toBillingType(initialExtendedMeta.billing_type)
+  )
+  const [previousBilledAmount, setPreviousBilledAmount] = useState<number | ''>(
+    getNumberMeta(initialExtendedMeta, 'previous_billed_amount')
+  )
+  const [currentBilledAmount, setCurrentBilledAmount] = useState<number | ''>(
+    getNumberMeta(initialExtendedMeta, 'current_billed_amount')
+  )
+  const [remainingAmount, setRemainingAmount] = useState<number | ''>(
+    getNumberMeta(initialExtendedMeta, 'remaining_amount')
+  )
 
   const [customerList, setCustomerList] = useState<Customer[]>(customers ?? [])
 
@@ -121,7 +346,120 @@ export function DocumentMetaForm({
 
   const customerOptions = useMemo(() => customerList ?? [], [customerList])
 
-  const currentDraft = useMemo<DocumentMetaDraft>(
+  const applyDraftToState = (draft: DocumentMetaDraft) => {
+  const nextTemplateProfile = toTemplateProfile(draft.template_profile)
+  const nextExtendedMeta = toObject(draft.extended_meta)
+
+  setPersistedTemplateProfile(nextTemplateProfile)
+  setPersistedExtendedMeta(nextExtendedMeta)
+
+  setCustomerId(String(draft.customer_id ?? ''))
+  setCustomerName(String(draft.customer_name ?? ''))
+  setCustomerHonorific(toHonorific(draft.customer_honorific))
+  setTitle(String(draft.title ?? ''))
+  setNotes(String(draft.notes ?? ''))
+  setDueDate(String(draft.due_date ?? ''))
+  setTemplateProfile(nextTemplateProfile)
+
+  setCreatorProjectName(getStringMeta(nextExtendedMeta, 'project_name'))
+  setCreatorDeliveryDueDate(getStringMeta(nextExtendedMeta, 'delivery_due_date'))
+  setCreatorDeliverablesSummary(getStringMeta(nextExtendedMeta, 'deliverables_summary'))
+  setCreatorRevisionRoundsIncluded(
+    getNumberMeta(nextExtendedMeta, 'revision_rounds_included')
+  )
+  setCreatorUsageScopeNote(getStringMeta(nextExtendedMeta, 'usage_scope_note'))
+  setCreatorRightsTreatmentNote(
+    getStringMeta(nextExtendedMeta, 'rights_treatment_note')
+  )
+
+  setInteriorProjectName(getStringMeta(nextExtendedMeta, 'project_name'))
+  setSiteName(getStringMeta(nextExtendedMeta, 'site_name'))
+  setConstructionPeriodFrom(getStringMeta(nextExtendedMeta, 'construction_period_from'))
+  setConstructionPeriodTo(getStringMeta(nextExtendedMeta, 'construction_period_to'))
+  setBillingType(toBillingType(nextExtendedMeta.billing_type))
+  setPreviousBilledAmount(getNumberMeta(nextExtendedMeta, 'previous_billed_amount'))
+  setCurrentBilledAmount(getNumberMeta(nextExtendedMeta, 'current_billed_amount'))
+  setRemainingAmount(getNumberMeta(nextExtendedMeta, 'remaining_amount'))
+
+  setBaseState(
+    stableJson(
+      normalize({
+        customer_id: draft.customer_id ?? '',
+        customer_name: draft.customer_name ?? '',
+        customer_honorific: draft.customer_honorific ?? null,
+        title: draft.title ?? '',
+        notes: draft.notes ?? '',
+        due_date: draft.due_date ?? '',
+        template_profile: nextTemplateProfile,
+        extended_meta: toComparableExtendedMeta(
+          nextTemplateProfile,
+          nextExtendedMeta
+        ),
+      })
+    )
+  )
+}
+
+const currentExtendedMeta = useMemo<Record<string, unknown>>(() => {
+  if (templateProfile === 'creator') {
+    const base =
+      persistedTemplateProfile === 'creator' ? { ...persistedExtendedMeta } : {}
+
+    return {
+      ...base,
+      ...buildCreatorMeta({
+        projectName: creatorProjectName,
+        deliveryDueDate: creatorDeliveryDueDate,
+        deliverablesSummary: creatorDeliverablesSummary,
+        revisionRoundsIncluded: creatorRevisionRoundsIncluded,
+        usageScopeNote: creatorUsageScopeNote,
+        rightsTreatmentNote: creatorRightsTreatmentNote,
+      }),
+    }
+  }
+
+  if (templateProfile === 'interior') {
+    const base =
+      persistedTemplateProfile === 'interior' ? { ...persistedExtendedMeta } : {}
+
+    return {
+      ...base,
+      ...buildInteriorMeta({
+        projectName: interiorProjectName,
+        siteName,
+        constructionPeriodFrom,
+        constructionPeriodTo,
+        billingType,
+        previousBilledAmount,
+        currentBilledAmount,
+        remainingAmount,
+      }),
+    }
+  }
+
+  return {}
+}, [
+  templateProfile,
+  persistedTemplateProfile,
+  persistedExtendedMeta,
+  creatorProjectName,
+  creatorDeliveryDueDate,
+  creatorDeliverablesSummary,
+  creatorRevisionRoundsIncluded,
+  creatorUsageScopeNote,
+  creatorRightsTreatmentNote,
+  interiorProjectName,
+  siteName,
+  constructionPeriodFrom,
+  constructionPeriodTo,
+  billingType,
+  previousBilledAmount,
+  currentBilledAmount,
+  remainingAmount,
+])
+
+const currentDraft = useMemo<DocumentMetaDraft>(
+
     () => ({
       customer_id: customerId || null,
       customer_name: customerName || null,
@@ -132,21 +470,39 @@ export function DocumentMetaForm({
       title: title || null,
       notes: notes || null,
       due_date: dueDate || null,
+      template_profile: templateProfile,
+      extended_meta: currentExtendedMeta,
     }),
-    [customerId, customerName, customerHonorific, title, notes, dueDate]
+    [
+      customerId,
+      customerName,
+      customerHonorific,
+      title,
+      notes,
+      dueDate,
+      templateProfile,
+      currentExtendedMeta,
+    ]
   )
 
   const currentNormalized = useMemo(
-    () => normalize(currentDraft),
-    [currentDraft]
-  )
+  () =>
+    normalize({
+      ...currentDraft,
+      extended_meta: toComparableExtendedMeta(
+        templateProfile,
+        toObject(currentDraft.extended_meta)
+      ),
+    }),
+  [currentDraft, templateProfile]
+)
 
   useEffect(() => {
     onDraftChange?.(currentDraft)
   }, [currentDraft, onDraftChange])
 
   const dirty = useMemo(() => {
-    return JSON.stringify(currentNormalized) !== baseState
+    return stableJson(currentNormalized) !== baseState
   }, [currentNormalized, baseState])
 
   useEffect(() => {
@@ -154,37 +510,41 @@ export function DocumentMetaForm({
   }, [dirty])
 
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true
-      return
-    }
+  if (!didMountRef.current) {
+    didMountRef.current = true
+    return
+  }
 
-    if (dirtyRef.current) return
+  if (dirtyRef.current) return
 
-    setCustomerId(initial.customer_id ?? '')
-    setCustomerName(initial.customer_name ?? '')
-    setCustomerHonorific(toHonorific(initial.customer_honorific))
-    setTitle(initial.title ?? '')
-    setNotes(initial.notes ?? '')
-    setDueDate(initial.due_date ?? '')
-    setBaseState(initialBaseState)
+  applyDraftToState({
+    customer_id: initial.customer_id ?? '',
+    customer_name: initial.customer_name ?? '',
+    customer_honorific: initial.customer_honorific ?? null,
+    title: initial.title ?? '',
+    notes: initial.notes ?? '',
+    due_date: initial.due_date ?? '',
+    template_profile: initial.template_profile ?? 'standard',
+    extended_meta: initial.extended_meta ?? {},
+  })
 
-    setErr(null)
-    setOk(null)
+  setErr(null)
+  setOk(null)
 
-    try {
-      localStorage.removeItem(DIRTY_KEY)
-    } catch {}
-  }, [
-    initial.customer_id,
-    initial.customer_name,
-    initial.customer_honorific,
-    initial.title,
-    initial.notes,
-    initial.due_date,
-    initialBaseState,
-    DIRTY_KEY,
-  ])
+  try {
+    localStorage.removeItem(DIRTY_KEY)
+  } catch {}
+}, [
+  initial.customer_id,
+  initial.customer_name,
+  initial.customer_honorific,
+  initial.title,
+  initial.notes,
+  initial.due_date,
+  initial.template_profile,
+  initial.extended_meta,
+  DIRTY_KEY,
+])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -261,6 +621,8 @@ export function DocumentMetaForm({
         title: title ? title : null,
         notes: notes ? notes : null,
         due_date: dueDate ? dueDate : null,
+        template_profile: templateProfile,
+        extended_meta: currentExtendedMeta,
       }
 
       const res = await fetch(`/api/documents/${documentId}`, {
@@ -276,15 +638,35 @@ export function DocumentMetaForm({
         return false
       }
 
-      setBaseState(JSON.stringify(normalize(payload)))
-      setOk('書類情報を保存しました')
+      const saved = json?.document as DocumentMetaDraft | undefined
 
-      try {
-        localStorage.removeItem(DIRTY_KEY)
-      } catch {}
+const nextDraft: DocumentMetaDraft = {
+  customer_id: saved?.customer_id ?? payload.customer_id ?? null,
+  customer_name: saved?.customer_name ?? payload.customer_name ?? null,
+  customer_honorific:
+    saved?.customer_honorific === '御中' || saved?.customer_honorific === '様'
+      ? saved.customer_honorific
+      : payload.customer_honorific ?? null,
+  title: saved?.title ?? payload.title ?? null,
+  notes: saved?.notes ?? payload.notes ?? null,
+  due_date: saved?.due_date ?? payload.due_date ?? null,
 
-      router.refresh()
-      return true
+  // ここは payload を優先して UI を巻き戻さない
+  template_profile: toTemplateProfile(
+    payload.template_profile ?? saved?.template_profile ?? 'standard'
+  ),
+  extended_meta: toObject(payload.extended_meta ?? saved?.extended_meta),
+}
+
+applyDraftToState(nextDraft)
+
+setOk('書類情報を保存しました')
+
+try {
+  localStorage.removeItem(DIRTY_KEY)
+} catch {}
+
+return true
     } catch (e: any) {
       setErr(e?.message ?? String(e))
       return false
@@ -302,6 +684,27 @@ export function DocumentMetaForm({
         </div>
 
         <div style={fieldGrid}>
+          <label style={fieldWrap}>
+            <span style={labelText}>帳票タイプ</span>
+            <select
+              value={templateProfile}
+              onChange={(e) => {
+                setErr(null)
+                setOk(null)
+                setTemplateProfile(toTemplateProfile(e.target.value))
+              }}
+              style={input}
+              disabled={busy}
+            >
+              <option value="standard">標準</option>
+              <option value="creator">フリーランス制作者向け</option>
+              <option value="interior">内装・小規模工事向け</option>
+            </select>
+            <div style={helpText}>
+              帳票タイプに応じて、追加の入力項目とPDF表示内容が切り替わります。
+            </div>
+          </label>
+
           <label style={fieldWrap}>
             <span style={labelText}>顧客マスタから選択</span>
             <select
@@ -411,6 +814,254 @@ export function DocumentMetaForm({
           </label>
         </div>
       </div>
+
+      {templateProfile === 'creator' && (
+        <div style={sectionCard}>
+          <div style={sectionTitle}>フリーランス制作者向け項目</div>
+          <div style={sectionDescription}>
+            案件情報や制作条件に関わる項目を入力します。
+          </div>
+
+          <div style={fieldGrid}>
+            <label style={fieldWrap}>
+              <span style={labelText}>案件名</span>
+              <input
+                value={creatorProjectName}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setCreatorProjectName(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）LP制作"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>納期</span>
+              <input
+                type="date"
+                value={creatorDeliveryDueDate}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setCreatorDeliveryDueDate(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>納品物</span>
+              <input
+                value={creatorDeliverablesSummary}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setCreatorDeliverablesSummary(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）バナー3点"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>修正回数</span>
+              <input
+                type="number"
+                min={0}
+                value={creatorRevisionRoundsIncluded}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  const raw = e.target.value
+                  setCreatorRevisionRoundsIncluded(raw === '' ? '' : Number(raw))
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）2"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>利用範囲</span>
+              <input
+                value={creatorUsageScopeNote}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setCreatorUsageScopeNote(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）Web掲載用"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>権利の扱い</span>
+              <input
+                value={creatorRightsTreatmentNote}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setCreatorRightsTreatmentNote(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）上記利用範囲で利用許諾"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {templateProfile === 'interior' && (
+        <div style={sectionCard}>
+          <div style={sectionTitle}>内装・小規模工事向け項目</div>
+          <div style={sectionDescription}>
+            工事案件や請求進捗に関わる項目を入力します。
+          </div>
+
+          <div style={fieldGrid}>
+            <label style={fieldWrap}>
+              <span style={labelText}>工事名</span>
+              <input
+                value={interiorProjectName}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setInteriorProjectName(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）店舗内装工事"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>現場名</span>
+              <input
+                value={siteName}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setSiteName(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）○○店舗"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>工期開始日</span>
+              <input
+                type="date"
+                value={constructionPeriodFrom}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setConstructionPeriodFrom(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>工期終了日</span>
+              <input
+                type="date"
+                value={constructionPeriodTo}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setConstructionPeriodTo(e.target.value)
+                }}
+                style={input}
+                disabled={busy}
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>請求区分</span>
+              <select
+                value={billingType}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  setBillingType(toBillingType(e.target.value))
+                }}
+                style={input}
+                disabled={busy}
+              >
+                <option value="">（未選択）</option>
+                <option value="advance">前受金</option>
+                <option value="partial">中間請求</option>
+                <option value="final">最終請求</option>
+              </select>
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>前回まで請求額</span>
+              <input
+                type="number"
+                min={0}
+                value={previousBilledAmount}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  const raw = e.target.value
+                  setPreviousBilledAmount(raw === '' ? '' : Number(raw))
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）50000"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>今回請求額</span>
+              <input
+                type="number"
+                min={0}
+                value={currentBilledAmount}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  const raw = e.target.value
+                  setCurrentBilledAmount(raw === '' ? '' : Number(raw))
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）150000"
+              />
+            </label>
+
+            <label style={fieldWrap}>
+              <span style={labelText}>残額</span>
+              <input
+                type="number"
+                min={0}
+                value={remainingAmount}
+                onChange={(e) => {
+                  setErr(null)
+                  setOk(null)
+                  const raw = e.target.value
+                  setRemainingAmount(raw === '' ? '' : Number(raw))
+                }}
+                style={input}
+                disabled={busy}
+                placeholder="例）0"
+              />
+            </label>
+          </div>
+        </div>
+      )}
 
       <div style={sectionCard}>
         <div style={sectionTitle}>補足情報</div>

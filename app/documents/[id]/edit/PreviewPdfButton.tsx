@@ -9,6 +9,8 @@ type PreviewPayload = {
   title?: string | null
   notes?: string | null
   due_date?: string | null
+  template_profile?: 'standard' | 'creator' | 'interior' | null
+  extended_meta?: Record<string, unknown> | null
   items?: Array<{
     description?: string | null
     quantity?: number | null
@@ -129,7 +131,6 @@ export default function PreviewPdfButton({
     `)
     popup.document.close()
 
-    // payload が無い場合は従来GET
     if (!payload) {
       popup.location.href = `/api/documents/${documentId}/pdf`
       return
@@ -141,7 +142,6 @@ export default function PreviewPdfButton({
       const now = Date.now()
       const last = lastPreviewRef.current
 
-      // 同一payload & TTL内なら再送せず前回のBlob URLを再利用
       if (
         last &&
         last.hash === payloadHash &&

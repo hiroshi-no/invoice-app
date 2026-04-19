@@ -8,6 +8,37 @@ import { createSupabaseServerClient } from '@/lib/api/supabase-server'
 import { withDebug } from '@/lib/debug'
 import { requireCurrentOrgId } from '@/lib/org/getCurrentOrgId'
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
+function normalizeTemplateProfile(v: unknown): TemplateProfile {
+  const s = String(v ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function normalizeExtendedMeta(v: unknown) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  return v as Record<string, unknown>
+}
+
+function defaultExtendedMetaForProfile(profile: TemplateProfile) {
+  if (profile === 'creator') {
+    return {
+      revision_rounds_included: 2,
+      payment_method_note: '銀行振込',
+    }
+  }
+
+  if (profile === 'interior') {
+    return {
+      billing_type: 'final',
+      payment_terms_note: '完工月末締め翌月末払い',
+    }
+  }
+
+  return {}
+}
+
 // GET /api/documents （簡易一覧）
 // POST /api/documents （新規作成：org_id必須）
 export async function GET(req: NextRequest) {
@@ -33,7 +64,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase
     .from('documents')
-    .select('id,status,document_no,issued_at,currency,total_amount,created_at,updated_at')
+    .select('id,status,document_no,issued_at,currency,total_amount,template_profile,created_at,updated_at')
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -84,6 +115,25 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const { data: profileRow } = await supabase
+    .from('profiles')
+    .select('preferred_template_profile')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  const preferredTemplateProfile = normalizeTemplateProfile(
+    profileRow?.preferred_template_profile
+  )
+
+  const templateProfile = normalizeTemplateProfile(
+    body.template_profile ?? preferredTemplateProfile
+  )
+
+  const extendedMeta =
+    body.extended_meta && typeof body.extended_meta === 'object'
+      ? normalizeExtendedMeta(body.extended_meta)
+      : defaultExtendedMetaForProfile(templateProfile)
+
   const now = new Date()
   const issueYear = now.getFullYear()
 
@@ -98,6 +148,8 @@ export async function POST(req: NextRequest) {
     title: body.title ?? null,
     notes: body.notes ?? null,
     due_date: body.due_date ?? null,
+    template_profile: templateProfile,
+    extended_meta: extendedMeta,
   }
 
   const { data, error } = await supabase

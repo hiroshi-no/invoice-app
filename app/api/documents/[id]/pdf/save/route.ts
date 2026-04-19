@@ -176,10 +176,12 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   const { data: doc, error: docErr } = await supabase
-    .from('documents')
-    .select('id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date')
-    .eq('id', documentId)
-    .maybeSingle()
+  .from('documents')
+  .select(
+    'id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date, template_profile, extended_meta'
+  )
+  .eq('id', documentId)
+  .maybeSingle()
 
   if (docErr) {
     return respondErr(
@@ -315,12 +317,28 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   const branding = await loadOrgBranding(supabase as any, orgId)
 
+  const safeDoc = {
+    ...doc,
+    template_profile:
+      doc?.template_profile === 'creator' ||
+      doc?.template_profile === 'interior' ||
+      doc?.template_profile === 'standard'
+        ? doc.template_profile
+        : 'standard',
+    extended_meta:
+      doc?.extended_meta &&
+      typeof doc.extended_meta === 'object' &&
+      !Array.isArray(doc.extended_meta)
+        ? doc.extended_meta
+        : {},
+  }
+
   const viewModel = buildInvoiceViewModel({
-    doc: doc as any,
-    customer: customer as any,
-    items: (items ?? []) as any[],
-    branding,
-  })
+  doc: safeDoc as any,
+  customer: customer as any,
+  items: (items ?? []) as any[],
+  branding,
+})
 
   const html = buildInvoiceHtml({
     ...viewModel,

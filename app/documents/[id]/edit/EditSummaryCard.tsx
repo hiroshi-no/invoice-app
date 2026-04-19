@@ -36,10 +36,17 @@ function resolveDueLabel(docType?: string, title?: string) {
   return '支払期日'
 }
 
+function formatTemplateProfile(value?: string) {
+  if (value === 'creator') return 'フリーランス制作者向け'
+  if (value === 'interior') return '内装・小規模工事向け'
+  return '標準'
+}
+
 export default function EditSummaryCard({
   documentId,
   documentNo,
   docType,
+  templateProfile,
   currency,
   title,
   dueDate,
@@ -53,6 +60,7 @@ export default function EditSummaryCard({
   documentId: string
   documentNo: string
   docType?: string
+  templateProfile: string
   currency: string
   title: string
   dueDate: string
@@ -126,6 +134,7 @@ export default function EditSummaryCard({
 
         <div style={{ display: 'grid', gap: 10 }}>
           <SummaryRow label="書類番号" value={documentNo || '—'} />
+          <SummaryRow label="帳票タイプ" value={formatTemplateProfile(templateProfile)} />
           <SummaryRow label="帳票タイトル" value={title || '—'} />
           <SummaryRow label="通貨" value={currency} />
           <SummaryRow label="請求先" value={customerLabel || '—'} />

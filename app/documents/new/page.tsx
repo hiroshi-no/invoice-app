@@ -11,6 +11,8 @@ type Props = {
   searchParams?: Promise<{ type?: string }> | { type?: string }
 }
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
 async function getCookieStore() {
   const c: any = cookies()
   return typeof c?.then === 'function' ? await c : c
@@ -46,6 +48,30 @@ function normalizeDocType(v: any): 'invoice' | 'quote' | null {
   if (s === 'invoice') return 'invoice'
   if (s === 'quotation' || s === 'quote') return 'quote'
   return null
+}
+
+function normalizeTemplateProfile(v: unknown): TemplateProfile {
+  const s = String(v ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function defaultExtendedMetaForProfile(profile: TemplateProfile) {
+  if (profile === 'creator') {
+    return {
+      revision_rounds_included: 2,
+      payment_method_note: '銀行振込',
+    }
+  }
+
+  if (profile === 'interior') {
+    return {
+      billing_type: 'final',
+      payment_terms_note: '完工月末締め翌月末払い',
+    }
+  }
+
+  return {}
 }
 
 function labelForDocType(docType: 'invoice' | 'quote') {
@@ -175,9 +201,24 @@ export default async function NewDocumentPage({ searchParams }: Props) {
     )
   }
 
+  const { data: profileRow, error: profileError } = await supabase
+    .from('profiles')
+    .select('preferred_template_profile')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (profileError) {
+    throw new Error(profileError.message)
+  }
+
+  const templateProfile = normalizeTemplateProfile(
+    profileRow?.preferred_template_profile
+  )
+  const extendedMeta = defaultExtendedMetaForProfile(templateProfile)
+
   const today = new Date().toISOString().slice(0, 10)
 
-    const insertPayload: Record<string, any> = {
+  const insertPayload: Record<string, any> = {
     org_id: orgId,
     created_by: userId,
     doc_type: docType,
@@ -185,6 +226,8 @@ export default async function NewDocumentPage({ searchParams }: Props) {
     currency: 'JPY',
     issued_at: today,
     title: null,
+    template_profile: templateProfile,
+    extended_meta: extendedMeta,
   }
 
   const { data, error } = await supabase

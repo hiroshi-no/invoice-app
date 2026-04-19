@@ -27,6 +27,8 @@ type PreviewOverrideBody = {
   title?: string | null
   notes?: string | null
   due_date?: string | null
+  template_profile?: 'standard' | 'creator' | 'interior' | null
+  extended_meta?: Record<string, unknown> | null
   items?: Array<{
     description?: string | null
     quantity?: number | null
@@ -53,6 +55,12 @@ function nonEmptyString(v: any) {
 
 function isUuid(v: any) {
   return typeof v === 'string' && UUID_RE.test(v)
+}
+
+function toObject(v: any): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {}
 }
 
 function getCachedPreviewPdf(cacheKey: string): Buffer | null {
@@ -135,7 +143,7 @@ async function handlePreview(req: NextRequest, ctx: RouteContext, method: 'GET' 
   const { data: doc, error: docErr } = await supabase
     .from('documents')
     .select(
-      'id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date'
+      'id, org_id, doc_type, customer_id, customer_name, customer_honorific, status, currency, document_no, issued_at, title, notes, due_date, template_profile, extended_meta'
     )
     .eq('id', documentId)
     .maybeSingle()
@@ -227,6 +235,14 @@ async function handlePreview(req: NextRequest, ctx: RouteContext, method: 'GET' 
       override?.due_date !== undefined
         ? override.due_date
         : (doc as any).due_date,
+    template_profile:
+      override?.template_profile !== undefined
+        ? override.template_profile
+        : (doc as any).template_profile,
+    extended_meta:
+      override?.extended_meta !== undefined
+        ? toObject(override.extended_meta)
+        : toObject((doc as any).extended_meta),
   }
 
   const itemsForViewModel =
@@ -247,6 +263,8 @@ async function handlePreview(req: NextRequest, ctx: RouteContext, method: 'GET' 
       title: nonEmptyString((docForViewModel as any).title),
       notes: String((docForViewModel as any).notes ?? ''),
       due_date: nonEmptyString((docForViewModel as any).due_date),
+      template_profile: String((docForViewModel as any).template_profile ?? 'standard'),
+      extended_meta: toObject((docForViewModel as any).extended_meta),
     },
     customer: customer
       ? {

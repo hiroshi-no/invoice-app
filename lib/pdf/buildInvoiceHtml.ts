@@ -65,6 +65,8 @@ function detectDocType(args: { docType?: string; title?: string }) {
 
 type TemplateKey = Branding['templateKey']
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
 type BuildInvoiceHtmlArgs = {
   title?: string
   docType?: string
@@ -78,6 +80,38 @@ type BuildInvoiceHtmlArgs = {
   rows: Array<{ description: string | null; qty: number; unit: number; line: number }>
   totals: { subtotal: number; tax: number; total: number }
   branding: Branding
+  templateProfile?: TemplateProfile
+  creatorMeta?: {
+    projectName?: string | null
+    workPeriodFrom?: string | null
+    workPeriodTo?: string | null
+    deliveryDueDate?: string | null
+    deliveryDate?: string | null
+    deliverablesSummary?: string | null
+    deliveryFormat?: string | null
+    revisionRoundsIncluded?: number | null
+    usageScopeNote?: string | null
+    rightsTreatmentNote?: string | null
+    paymentTermsNote?: string | null
+    paymentMethodNote?: string | null
+    withholdingTaxEnabled?: boolean | null
+    withholdingTaxAmount?: number | null
+  }
+  interiorMeta?: {
+    projectName?: string | null
+    siteName?: string | null
+    siteAddress?: string | null
+    constructionPeriodFrom?: string | null
+    constructionPeriodTo?: string | null
+    estimateValidUntil?: string | null
+    billingType?: string | null
+    paymentTermsNote?: string | null
+    scopeIncludedNote?: string | null
+    scopeExcludedNote?: string | null
+    previousBilledAmount?: number | null
+    currentBilledAmount?: number | null
+    remainingAmount?: number | null
+  }
   customer?: {
     postalCode?: string | null
     address1?: string | null
@@ -99,6 +133,7 @@ type BuildInvoiceHtmlArgs = {
 
 type RenderPartsArgs = {
   templateKey: TemplateKey
+  templateProfile: TemplateProfile
   safeTitle: string
   safeCustomTitle: string
   customerDisplayName: string
@@ -116,6 +151,8 @@ type RenderPartsArgs = {
   moneySuffix: string
   notesHtml: string
   footerHtml: string
+  creatorMeta?: BuildInvoiceHtmlArgs['creatorMeta']
+  interiorMeta?: BuildInvoiceHtmlArgs['interiorMeta']
 }
 
 /* =========================
@@ -487,6 +524,63 @@ function getPartialCss() {
     .sectionBlock-corporateIssuer,
     .sectionBlock-corporateMeta {
       margin-top: 0 !important;
+    }
+
+        .profileSection {
+      margin-top: 18px;
+      display: grid;
+      gap: 12px;
+      break-inside: avoid;
+    }
+
+    .profileSectionTitle {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      margin-top: 6px;
+    }
+
+    .profileBlock {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .profileTable {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0;
+    }
+
+    .profileTable th,
+    .profileTable td {
+      padding: 9px 10px;
+      font-size: 12px;
+      border-bottom: 1px solid #eef2f7;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      background: #fff;
+    }
+
+    .profileTable tr:last-child th,
+    .profileTable tr:last-child td {
+      border-bottom: none;
+    }
+
+    .profileTable th {
+      width: 34%;
+      text-align: left;
+      color: #64748b;
+      background: #f8fafc;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .profileTable td {
+      color: #111827;
+      font-weight: 600;
     }
   `
 }
@@ -2015,10 +2109,155 @@ function renderFooter(args: RenderPartsArgs) {
   }
 }
 
+function renderProfileInfoTable(rows: Array<{ label: string; value: string }>) {
+  const visibleRows = rows.filter((r) => nonEmpty(r.value))
+  if (!visibleRows.length) return ''
+
+  return `
+    <div class="profileBlock">
+      <table class="profileTable">
+        <tbody>
+          ${visibleRows
+            .map(
+              (r) => `
+                <tr>
+                  <th>${escapeHtml(r.label)}</th>
+                  <td>${escapeHtml(r.value)}</td>
+                </tr>`,
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+function formatInteriorBillingType(value: unknown) {
+  const s = String(value ?? '').trim()
+
+  if (s === 'advance') return '前受金'
+  if (s === 'partial') return '中間請求'
+  if (s === 'final') return '最終請求'
+
+  return s
+}
+
+function renderCreatorBlocks(args: RenderPartsArgs) {
+  const meta = args.creatorMeta
+  if (!meta) return ''
+
+  const projectInfoRows = [
+    { label: '案件名', value: nonEmpty(meta.projectName) },
+    { label: '作業期間（開始）', value: nonEmpty(meta.workPeriodFrom) },
+    { label: '作業期間（終了）', value: nonEmpty(meta.workPeriodTo) },
+    { label: '納期', value: nonEmpty(meta.deliveryDueDate) || nonEmpty(meta.deliveryDate) },
+    { label: '納品物', value: nonEmpty(meta.deliverablesSummary) },
+  ]
+
+  const conditionRows = [
+    { label: '納品形式', value: nonEmpty(meta.deliveryFormat) },
+    {
+      label: '修正回数',
+      value:
+        meta.revisionRoundsIncluded == null ? '' : String(meta.revisionRoundsIncluded),
+    },
+    { label: '利用範囲', value: nonEmpty(meta.usageScopeNote) },
+    { label: '権利の扱い', value: nonEmpty(meta.rightsTreatmentNote) },
+    { label: '支払条件', value: nonEmpty(meta.paymentTermsNote) },
+    { label: '支払方法', value: nonEmpty(meta.paymentMethodNote) },
+    {
+      label: '源泉徴収額',
+      value:
+        meta.withholdingTaxEnabled && meta.withholdingTaxAmount != null
+          ? `${num(meta.withholdingTaxAmount).toLocaleString()} ${args.moneySuffix}`
+          : '',
+    },
+  ]
+
+  const projectInfoHtml = renderProfileInfoTable(projectInfoRows)
+  const conditionHtml = renderProfileInfoTable(conditionRows)
+
+  if (!projectInfoHtml && !conditionHtml) return ''
+
+  return `
+    <div class="profileSection">
+      ${projectInfoHtml ? `<div class="profileSectionTitle">案件情報</div>${projectInfoHtml}` : ''}
+      ${conditionHtml ? `<div class="profileSectionTitle">制作条件</div>${conditionHtml}` : ''}
+    </div>
+  `
+}
+
+function renderInteriorBlocks(args: RenderPartsArgs) {
+  const meta = args.interiorMeta
+  if (!meta) return ''
+
+  const projectInfoRows = [
+    { label: '工事名', value: nonEmpty(meta.projectName) },
+    { label: '現場名', value: nonEmpty(meta.siteName) },
+    { label: '工事場所', value: nonEmpty(meta.siteAddress) },
+    { label: '工期（開始）', value: nonEmpty(meta.constructionPeriodFrom) },
+    { label: '工期（終了）', value: nonEmpty(meta.constructionPeriodTo) },
+    { label: '見積有効期限', value: nonEmpty(meta.estimateValidUntil) },
+  ]
+
+  const billingRows = [
+  { label: '請求区分', value: formatInteriorBillingType(meta.billingType) },
+  { label: '支払条件', value: nonEmpty(meta.paymentTermsNote) },
+  { label: '含むもの', value: nonEmpty(meta.scopeIncludedNote) },
+  { label: '含まないもの', value: nonEmpty(meta.scopeExcludedNote) },
+  {
+    label: '前回まで請求額',
+    value:
+      meta.previousBilledAmount == null
+        ? ''
+        : `${num(meta.previousBilledAmount).toLocaleString()} ${args.moneySuffix}`,
+  },
+  {
+    label: '今回請求額',
+    value:
+      meta.currentBilledAmount == null
+        ? ''
+        : `${num(meta.currentBilledAmount).toLocaleString()} ${args.moneySuffix}`,
+  },
+  {
+    label: '残額',
+    value:
+      meta.remainingAmount == null
+        ? ''
+        : `${num(meta.remainingAmount).toLocaleString()} ${args.moneySuffix}`,
+  },
+]
+
+  const projectInfoHtml = renderProfileInfoTable(projectInfoRows)
+  const billingHtml = renderProfileInfoTable(billingRows)
+
+  if (!projectInfoHtml && !billingHtml) return ''
+
+  return `
+    <div class="profileSection">
+      ${projectInfoHtml ? `<div class="profileSectionTitle">工事情報</div>${projectInfoHtml}` : ''}
+      ${billingHtml ? `<div class="profileSectionTitle">請求・条件情報</div>${billingHtml}` : ''}
+    </div>
+  `
+}
+
+function renderProfileBlocks(args: RenderPartsArgs) {
+  if (args.templateProfile === 'creator') {
+    return renderCreatorBlocks(args)
+  }
+
+  if (args.templateProfile === 'interior') {
+    return renderInteriorBlocks(args)
+  }
+
+  return ''
+}
+
 function renderDocumentBody(args: RenderPartsArgs) {
   return `
     <div class="page">
       ${renderHeader(args)}
+      ${renderProfileBlocks(args)}
       ${renderItemsTable(args)}
       ${renderTotals(args)}
       ${renderNotes(args)}
@@ -2028,7 +2267,7 @@ function renderDocumentBody(args: RenderPartsArgs) {
 }
 
 export function buildInvoiceHtml(args: BuildInvoiceHtmlArgs) {
-  const {
+    const {
     title = '請求書',
     docType,
     documentNo,
@@ -2041,6 +2280,9 @@ export function buildInvoiceHtml(args: BuildInvoiceHtmlArgs) {
     rows,
     totals,
     branding,
+    templateProfile = 'standard',
+    creatorMeta,
+    interiorMeta,
     customer,
     issuer,
     fontCss = '',
@@ -2115,8 +2357,9 @@ export function buildInvoiceHtml(args: BuildInvoiceHtmlArgs) {
     getTemplateCss(templateKey),
   ].join('\n')
 
-  const htmlBody = renderDocumentBody({
+    const htmlBody = renderDocumentBody({
     templateKey,
+    templateProfile,
     safeTitle,
     safeCustomTitle,
     customerDisplayName,
@@ -2134,6 +2377,8 @@ export function buildInvoiceHtml(args: BuildInvoiceHtmlArgs) {
     moneySuffix,
     notesHtml,
     footerHtml,
+    creatorMeta,
+    interiorMeta,
   })
 
   return `<!doctype html>

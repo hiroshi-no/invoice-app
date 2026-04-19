@@ -294,6 +294,8 @@ export default function HomePage() {
         </div>
       </section>
 
+      <EntryLinksSection />
+
       <section>
         <div
           style={{
@@ -393,64 +395,6 @@ export default function HomePage() {
             ご利用の流れ
           </h2>
 
-<section>
-  <div
-    style={{
-      maxWidth: 1100,
-      margin: '0 auto',
-      padding: 'clamp(40px, 6vw, 64px) 16px 24px',
-    }}
-  >
-    <h2
-      style={{
-        fontSize: 'clamp(26px, 4vw, 32px)',
-        lineHeight: 1.35,
-        fontWeight: 800,
-        margin: 0,
-      }}
-    >
-      料金プラン
-    </h2>
-
-    <p
-      style={{
-        marginTop: 14,
-        color: '#4b5563',
-        lineHeight: 1.9,
-        maxWidth: 760,
-      }}
-    >
-      まずは無料で使い始めて、業務量に合わせてアップグレードできます。
-      基本作成は無料で試せて、発行数やブランド設定などの継続利用向け機能を有料プランで拡張できます。
-    </p>
-
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-        gap: 18,
-        marginTop: 28,
-      }}
-    >
-      {pricingPlans.map((plan) => (
-        <PricingCard key={plan.name} {...plan} />
-      ))}
-    </div>
-
-    <p
-      style={{
-        marginTop: 18,
-        fontSize: 13,
-        color: '#6b7280',
-        lineHeight: 1.8,
-      }}
-    >
-      ※ 表示内容や価格は今後変更する場合があります。<br />
-      ※ 有料プラン導入時は、支払方法・契約更新・解約条件をサービス上でご案内します。
-    </p>
-  </div>
-</section>
-
           <div
             style={{
               display: 'grid',
@@ -498,6 +442,65 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section>
+        <div
+          style={{
+            maxWidth: 1100,
+            margin: '0 auto',
+            padding: 'clamp(40px, 6vw, 64px) 16px 24px',
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 'clamp(26px, 4vw, 32px)',
+              lineHeight: 1.35,
+              fontWeight: 800,
+              margin: 0,
+            }}
+          >
+            料金プラン
+          </h2>
+
+          <p
+            style={{
+              marginTop: 14,
+              color: '#4b5563',
+              lineHeight: 1.9,
+              maxWidth: 760,
+            }}
+          >
+            まずは無料で使い始めて、業務量に合わせてアップグレードできます。
+            基本作成は無料で試せて、発行数やブランド設定などの継続利用向け機能を有料プランで拡張できます。
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gap: 18,
+              marginTop: 28,
+            }}
+          >
+            {pricingPlans.map((plan) => (
+              <PricingCard key={plan.name} {...plan} />
+            ))}
+          </div>
+
+          <p
+            style={{
+              marginTop: 18,
+              fontSize: 13,
+              color: '#6b7280',
+              lineHeight: 1.8,
+            }}
+          >
+            ※ 表示内容や価格は今後変更する場合があります。
+            <br />
+            ※ 有料プラン導入時は、支払方法・契約更新・解約条件をサービス上でご案内します。
+          </p>
         </div>
       </section>
 
@@ -583,6 +586,216 @@ export default function HomePage() {
         </div>
       </section>
     </main>
+  )
+}
+
+function EntryLinksSection() {
+  return (
+    <section
+      style={{
+        maxWidth: 1100,
+        margin: '0 auto',
+        padding: 'clamp(34px, 5vw, 54px) 16px 8px',
+      }}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: '#2563eb',
+            letterSpacing: 0.04,
+            marginBottom: 8,
+          }}
+        >
+          
+        </div>
+
+        <h2
+          style={{
+            margin: '0 0 10px 0',
+            fontSize: 'clamp(26px, 4vw, 32px)',
+            fontWeight: 800,
+            color: '#111827',
+            lineHeight: 1.35,
+          }}
+        >
+          ご利用シーンに合わせて始められます
+        </h2>
+
+        <p
+          style={{
+            margin: 0,
+            fontSize: 14,
+            lineHeight: 1.8,
+            color: '#4b5563',
+            maxWidth: 760,
+          }}
+        >
+          個人事業主全般で使えますが、用途に近い入口から始めることで、
+          初期設定や案内をより分かりやすくできます。
+        </p>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 16,
+        }}
+      >
+        <EntryCard
+          href="/freelance"
+          badge="creator"
+          title="フリーランス制作者向け"
+          text="案件名・納期・納品物・修正回数などを整理した見積書・請求書を作りたい方向けです。"
+          bullets={[
+            '案件情報を整理しやすい',
+            '制作条件を見積書に載せやすい',
+            '見た目の整ったPDFを作りやすい',
+          ]}
+          action="フリーランス向けを見る"
+        />
+
+        <EntryCard
+          href="/interior"
+          badge="interior"
+          title="内装・小規模工事向け"
+          text="工事名・現場名・工期・請求区分などを整理した帳票を作りたい方向けです。"
+          bullets={[
+            '工事案件ごとに帳票を整理',
+            '見積書と請求書を分けて作成',
+            '請求進捗の情報も載せやすい',
+          ]}
+          action="工事向けを見る"
+        />
+
+        <EntryCard
+          href="/small-business"
+          badge="standard"
+          title="個人事業主全般向け"
+          text="まずは標準の帳票で、シンプルな請求書・見積書を作りたい方向けです。"
+          bullets={[
+            '汎用的な請求書・見積書',
+            '標準の入力項目ですぐに開始',
+            '迷わず使い始めやすい',
+          ]}
+          action="標準で始める"
+        />
+      </div>
+    </section>
+  )
+}
+
+function EntryCard({
+  href,
+  badge,
+  title,
+  text,
+  bullets,
+  action,
+}: {
+  href: string
+  badge: string
+  title: string
+  text: string
+  bullets: string[]
+  action: string
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: 'block',
+        border: '1px solid #e5e7eb',
+        borderRadius: 18,
+        background: '#fff',
+        padding: 20,
+        textDecoration: 'none',
+        color: '#111827',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 18,
+            fontWeight: 700,
+            lineHeight: 1.4,
+          }}
+        >
+          {title}
+        </div>
+
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: '1px solid #e5e7eb',
+            background: '#f9fafb',
+            color: '#6b7280',
+            fontSize: 12,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {badge}
+        </div>
+      </div>
+
+      <div
+        style={{
+          fontSize: 14,
+          color: '#4b5563',
+          lineHeight: 1.8,
+        }}
+      >
+        {text}
+      </div>
+
+      <ul
+        style={{
+          margin: '14px 0 0 18px',
+          padding: 0,
+          color: '#374151',
+          lineHeight: 1.9,
+          fontSize: 14,
+        }}
+      >
+        {bullets.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+
+      <div
+        style={{
+          marginTop: 16,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '10px 14px',
+          border: '1px solid #d1d5db',
+          borderRadius: 10,
+          background: '#fff',
+          color: '#111827',
+          fontSize: 13,
+          fontWeight: 700,
+        }}
+      >
+        {action}
+      </div>
+    </Link>
   )
 }
 

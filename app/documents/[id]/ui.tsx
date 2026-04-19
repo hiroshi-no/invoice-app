@@ -225,6 +225,16 @@ export default function DocumentActions({
     setOkMsg(null)
   }
 
+  function notifyPdfSaved() {
+    if (typeof window === 'undefined') return
+
+    window.dispatchEvent(
+      new CustomEvent('invoice:pdf-saved', {
+        detail: { documentId },
+      })
+    )
+  }
+
   const issue = async () => {
     if (!isDraft) return
     if (isBusy) return
@@ -310,6 +320,7 @@ export default function DocumentActions({
           return
         }
 
+        notifyPdfSaved()
         router.refresh()
         setOkMsg('PDFを保存しました')
 
@@ -373,77 +384,78 @@ export default function DocumentActions({
     }
   }
 
-const finalize = async () => {
-  if (!isDraft) return
-  if (isBusy) return
-  resetNotice()
+  const finalize = async () => {
+    if (!isDraft) return
+    if (isBusy) return
+    resetNotice()
 
-  await runOnce('finalize', async () => {
-    try {
-      if (!ensureSavedOrWarn()) return
-
-      const itemsHash = await getItemsHashOrFetch()
-      if (!itemsHash) {
-        pushErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
-        return
-      }
-
-      setFinalizeStep('issuing')
-
-      const res = await fetch('/api/documents/' + documentId + '/finalize', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'x-confirm-saved-items': '1',
-          'x-items-hash': itemsHash,
-        },
-        cache: 'no-store',
-      })
-
-      const text = await res.clone().text().catch(() => '')
-      let json: any = {}
+    await runOnce('finalize', async () => {
       try {
-        json = text ? JSON.parse(text) : {}
-      } catch {
-        json = { raw: text }
+        if (!ensureSavedOrWarn()) return
+
+        const itemsHash = await getItemsHashOrFetch()
+        if (!itemsHash) {
+          pushErr('明細ハッシュが見つかりません。編集画面で保存し直してください。')
+          return
+        }
+
+        setFinalizeStep('issuing')
+
+        const res = await fetch('/api/documents/' + documentId + '/finalize', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'x-confirm-saved-items': '1',
+            'x-items-hash': itemsHash,
+          },
+          cache: 'no-store',
+        })
+
+        const text = await res.clone().text().catch(() => '')
+        let json: any = {}
+        try {
+          json = text ? JSON.parse(text) : {}
+        } catch {
+          json = { raw: text }
+        }
+
+        if (!res.ok) {
+          reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
+          logApiError('finalize', res, json)
+
+          const friendly = friendlyFinalizeError(res.status, json)
+          pushErr(friendly)
+          return
+        }
+
+        const issuedDocNo =
+          (json?.issue?.document?.document_no as string | undefined) ??
+          (json?.issue?.document_no as string | undefined) ??
+          (json?.issue?.document?.no as string | undefined) ??
+          null
+
+        if (issuedDocNo) {
+          setIssuedNo(issuedDocNo)
+        }
+
+        setOptimisticStatus('issued')
+        setFinalizeStep('saving')
+
+        notifyPdfSaved()
+        router.refresh()
+
+        if (issuedDocNo) {
+          pushOk(`発行＋PDF保存しました：${issuedDocNo}`)
+        } else {
+          pushOk('発行＋PDF保存しました')
+        }
+      } catch (e: any) {
+        pushErr('Network/JS error: ' + (e?.message ?? String(e)))
+      } finally {
+        setFinalizeStep('idle')
       }
-
-      if (!res.ok) {
-        reportClientError('[finalize] raw body (first 400 chars)', text.slice(0, 400))
-        logApiError('finalize', res, json)
-
-        const friendly = friendlyFinalizeError(res.status, json)
-        pushErr(friendly)
-        return
-      }
-
-      const issuedDocNo =
-        (json?.issue?.document?.document_no as string | undefined) ??
-        (json?.issue?.document_no as string | undefined) ??
-        (json?.issue?.document?.no as string | undefined) ??
-        null
-
-      if (issuedDocNo) {
-        setIssuedNo(issuedDocNo)
-      }
-
-      setOptimisticStatus('issued')
-      setFinalizeStep('saving')
-
-      router.refresh()
-
-      if (issuedDocNo) {
-        pushOk(`発行＋PDF保存しました：${issuedDocNo}`)
-      } else {
-        pushOk('発行＋PDF保存しました')
-      }
-    } catch (e: any) {
-      pushErr('Network/JS error: ' + (e?.message ?? String(e)))
-    } finally {
-      setFinalizeStep('idle')
-    }
-  })
-}
+    })
+  }
 
   const actionBusy = !!busy || isBusy || finalizeStep !== 'idle'
   const blockedByDirty = !!dirtyItems
@@ -566,43 +578,43 @@ const finalize = async () => {
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-    {isDraft && (
-    <button
-      type="button"
-      onClick={finalize}
-      disabled={finalizeDisabled}
-      style={btnPrimaryStyle(finalizeDisabled)}
-    >
-      {blockedByDirty
-        ? '未保存のため発行不可'
-        : busy === 'finalize'
-          ? finalizeStep === 'issuing'
-          ? '発行中…'
-          : 'PDF保存中…'
-        : 'この内容で発行'}
-    </button>
-    )}
+        {isDraft && (
+          <button
+            type="button"
+            onClick={finalize}
+            disabled={finalizeDisabled}
+            style={btnPrimaryStyle(finalizeDisabled)}
+          >
+            {blockedByDirty
+              ? '未保存のため発行不可'
+              : busy === 'finalize'
+                ? finalizeStep === 'issuing'
+                  ? '発行中…'
+                  : 'PDF保存中…'
+                : 'この内容で発行'}
+          </button>
+        )}
 
-  <button
-    type="button"
-    onClick={openPdfPreview}
-    disabled={previewDisabled}
-    style={btnStyle(previewDisabled)}
-  >
-    PDFプレビュー
-  </button>
+        <button
+          type="button"
+          onClick={openPdfPreview}
+          disabled={previewDisabled}
+          style={btnStyle(previewDisabled)}
+        >
+          PDFプレビュー
+        </button>
 
-  {!isDraft && (
-    <button
-      type="button"
-      onClick={duplicateToEdit}
-      disabled={duplicateDisabled}
-      style={btnStyle(duplicateDisabled)}
-    >
-      {busy === 'duplicate' ? '複製中…' : '複製して編集'}
-    </button>
-  )}
-</div>
+        {!isDraft && (
+          <button
+            type="button"
+            onClick={duplicateToEdit}
+            disabled={duplicateDisabled}
+            style={btnStyle(duplicateDisabled)}
+          >
+            {busy === 'duplicate' ? '複製中…' : '複製して編集'}
+          </button>
+        )}
+      </div>
 
       {!isDraft && (
         <p style={{ color: '#666' }}>

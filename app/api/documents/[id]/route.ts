@@ -6,6 +6,8 @@ import { createServerClient } from '@supabase/ssr'
 
 type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -46,6 +48,17 @@ function normalizeCustomerHonorific(v: unknown): '御中' | '様' | null {
   return null
 }
 
+function normalizeTemplateProfile(v: unknown): TemplateProfile {
+  const s = String(v ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function normalizeExtendedMeta(v: unknown) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  return v as Record<string, unknown>
+}
+
 async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
   const params = await unwrapParams(ctx)
   const documentId = String((params as any)?.id ?? '')
@@ -72,7 +85,7 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
 
   const { data: doc, error: docErr } = await supabase
     .from('documents')
-    .select('id, org_id, status')
+    .select('id, org_id, status, template_profile, extended_meta')
     .eq('id', documentId)
     .maybeSingle()
 
@@ -102,17 +115,22 @@ async function updateDocumentMeta(req: NextRequest, ctx: RouteContext) {
     if (!c) return respond({ error: 'Invalid customer_id' }, { status: 400 })
   }
 
-  const nextCustomerName = nullableText(body?.customer_name)
-  const nextCustomerHonorific = normalizeCustomerHonorific(body?.customer_honorific)
-
   const patch: any = {
     customer_id: nextCustomerId,
-    customer_name: nextCustomerName,
-    customer_honorific: nextCustomerHonorific,
+    customer_name: nullableText(body?.customer_name),
+    customer_honorific: normalizeCustomerHonorific(body?.customer_honorific),
     title: nullableText(body?.title),
     notes: nullableText(body?.notes),
     due_date: body?.due_date ?? null,
     updated_at: new Date().toISOString(),
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'template_profile')) {
+    patch.template_profile = normalizeTemplateProfile(body?.template_profile)
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'extended_meta')) {
+    patch.extended_meta = normalizeExtendedMeta(body?.extended_meta)
   }
 
   const { data: updated, error: upErr } = await supabase

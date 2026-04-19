@@ -36,13 +36,15 @@ declare global {
   interface Window {
     __invoicePreviewState?: Record<
       string,
-      {
+            {
         customer_id?: string | null
         customer_name?: string | null
         customer_honorific?: string | null
         title?: string | null
         notes?: string | null
         due_date?: string | null
+        template_profile?: string | null
+        extended_meta?: Record<string, unknown> | null
         items?: Array<{
           description?: string | null
           quantity?: number | null
@@ -167,7 +169,7 @@ export default function EditPageClient({
   initialBranding: Branding
   initialCustomerDetail: CustomerDetail
 }) {
-  const stableInitialMeta = useMemo<DocumentMetaDraft>(
+      const stableInitialMeta = useMemo<DocumentMetaDraft>(
     () => ({
       customer_id: initialMeta.customer_id ?? null,
       customer_name: initialMeta.customer_name ?? null,
@@ -175,6 +177,13 @@ export default function EditPageClient({
       title: initialMeta.title ?? null,
       notes: initialMeta.notes ?? null,
       due_date: initialMeta.due_date ?? null,
+      template_profile: initialMeta.template_profile ?? 'standard',
+      extended_meta:
+        initialMeta.extended_meta &&
+        typeof initialMeta.extended_meta === 'object' &&
+        !Array.isArray(initialMeta.extended_meta)
+          ? initialMeta.extended_meta
+          : {},
     }),
     [
       initialMeta.customer_id,
@@ -183,8 +192,11 @@ export default function EditPageClient({
       initialMeta.title,
       initialMeta.notes,
       initialMeta.due_date,
+      initialMeta.template_profile,
+      initialMeta.extended_meta,
     ]
   )
+    
 
   const stableInitialItems = useMemo<Item[]>(
     () =>
@@ -203,7 +215,7 @@ export default function EditPageClient({
 
   const itemCount = itemsDraft.length
   const dueDateLabel = getDueDateLabel(docType)
-  const previewPayload = useMemo(() => {
+    const previewPayload = useMemo(() => {
     return {
       customer_id: metaDraft.customer_id ?? null,
       customer_name: metaDraft.customer_name ?? '',
@@ -211,6 +223,13 @@ export default function EditPageClient({
       title: metaDraft.title ?? '',
       notes: metaDraft.notes ?? '',
       due_date: metaDraft.due_date ?? '',
+      template_profile: metaDraft.template_profile ?? 'standard',
+      extended_meta:
+        metaDraft.extended_meta &&
+        typeof metaDraft.extended_meta === 'object' &&
+        !Array.isArray(metaDraft.extended_meta)
+          ? metaDraft.extended_meta
+          : {},
       items: itemsDraft.map((it) => ({
         description: it.description ?? '',
         quantity: Number(it.quantity ?? 0),
@@ -237,7 +256,7 @@ export default function EditPageClient({
 
   const liveViewModel = useMemo(() => {
     return buildInvoiceViewModel({
-      doc: {
+            doc: {
         id: documentId,
         doc_type: docType ?? '',
         customer_name: metaDraft.customer_name ?? '',
@@ -248,6 +267,13 @@ export default function EditPageClient({
         title: metaDraft.title ?? '',
         notes: metaDraft.notes ?? '',
         due_date: metaDraft.due_date ?? '',
+        template_profile: metaDraft.template_profile ?? 'standard',
+        extended_meta:
+          metaDraft.extended_meta &&
+          typeof metaDraft.extended_meta === 'object' &&
+          !Array.isArray(metaDraft.extended_meta)
+            ? metaDraft.extended_meta
+            : {},
       },
       customer: {
         name: initialCustomerDetail?.name ?? '',
@@ -436,10 +462,11 @@ export default function EditPageClient({
         <PdfFilesList documentId={documentId} />
       </div>
 
-      <EditSummaryCard
+            <EditSummaryCard
         documentId={documentId}
         documentNo={documentNo}
         docType={String(docType ?? '')}
+        templateProfile={String(metaDraft.template_profile ?? 'standard')}
         currency={liveViewModel.currency}
         title={String(metaDraft.title ?? '')}
         dueDate={String(metaDraft.due_date ?? '')}

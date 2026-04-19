@@ -35,8 +35,10 @@ function fallbackDisplayName(documentId: string) {
 
 export default function DocumentPdfSummaryCard({
   documentId,
+  refreshKey = 0,
 }: {
   documentId: string
+  refreshKey?: number
 }) {
   const [busy, setBusy] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -85,11 +87,27 @@ export default function DocumentPdfSummaryCard({
       }
     }
 
+    const onPdfSaved = (event: Event) => {
+      const custom = event as CustomEvent<{ documentId?: string }>
+      if (custom?.detail?.documentId && custom.detail.documentId !== documentId) {
+        return
+      }
+      void load()
+    }
+
     void load()
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('invoice:pdf-saved', onPdfSaved as EventListener)
+    }
+
     return () => {
       cancelled = true
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('invoice:pdf-saved', onPdfSaved as EventListener)
+      }
     }
-  }, [documentId])
+  }, [documentId, refreshKey])
 
   const normalizedFiles = useMemo(() => {
     const mapped = files.map((file) => {

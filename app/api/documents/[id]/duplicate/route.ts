@@ -8,8 +8,21 @@ type RouteContext =
   | { params: { id: string } }
   | { params: Promise<{ id: string }> }
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeTemplateProfile(v: unknown): TemplateProfile {
+  const s = String(v ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function normalizeExtendedMeta(v: unknown) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  return v as Record<string, unknown>
+}
 
 function createSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -54,29 +67,33 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
   const userId = userData.user.id
 
-const { data: src, error: srcErr } = await supabase
-  .from('documents')
-  .select('id, org_id, doc_type, due_date, customer_id, currency, title, notes')
-  .eq('id', sourceId)
-  .maybeSingle()
+  const { data: src, error: srcErr } = await supabase
+    .from('documents')
+    .select(
+      'id, org_id, doc_type, due_date, customer_id, currency, title, notes, template_profile, extended_meta'
+    )
+    .eq('id', sourceId)
+    .maybeSingle()
 
-if (srcErr) return respond({ error: srcErr.message }, 500)
-if (!src) return respond({ error: 'Source document not found' }, 404)
-if (!src.org_id) return respond({ error: 'Source document org_id not found' }, 500)
+  if (srcErr) return respond({ error: srcErr.message }, 500)
+  if (!src) return respond({ error: 'Source document not found' }, 404)
+  if (!src.org_id) return respond({ error: 'Source document org_id not found' }, 500)
 
-const orgId = src.org_id as string
+  const orgId = src.org_id as string
+  const templateProfile = normalizeTemplateProfile(src.template_profile)
+  const extendedMeta = normalizeExtendedMeta(src.extended_meta)
 
   // source items
-const { data: srcItems, error: itemsErr } = await supabase
-  .from('document_items')
-  .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
-  .eq('document_id', sourceId)
-  .eq('org_id', orgId) // ✅ src.org_id ではなく orgId
-  .order('position', { ascending: true })
+  const { data: srcItems, error: itemsErr } = await supabase
+    .from('document_items')
+    .select('position, description, quantity, unit_price_amount, line_subtotal_amount')
+    .eq('document_id', sourceId)
+    .eq('org_id', orgId)
+    .order('position', { ascending: true })
 
   if (itemsErr) return respond({ error: itemsErr.message }, 500)
 
-  // ✅ subtotal（line_subtotal_amount 優先。無い時だけ qty*unit）
+  // subtotal（line_subtotal_amount 優先。無い時だけ qty*unit）
   const currency = String(src.currency ?? 'JPY')
   const subtotal = (srcItems ?? []).reduce((acc: number, it: any) => {
     const qty = Number(it.quantity ?? 0)
@@ -86,57 +103,54 @@ const { data: srcItems, error: itemsErr } = await supabase
     return acc + (Number.isFinite(line) ? line : 0)
   }, 0)
 
-  // ✅ totals をDBに反映（calcTotals の戻り値の形が違っても耐える）
+  // totals をDBに反映（calcTotals の戻り値の形が違っても耐える）
   const t: any = calcTotals(subtotal, currency)
   const subtotal_amount = Number(t?.subtotal_amount ?? t?.subtotal ?? subtotal)
   const tax_amount = Number(t?.tax_amount ?? t?.tax ?? 0)
   const total_amount = Number(t?.total_amount ?? t?.total ?? subtotal_amount + tax_amount)
 
-// 新規ドキュメント作成時に org_id を追加
-const newDocPayload: any = {
-  org_id: orgId, // ✅ src.org_id ではなく orgId
-  doc_type: src.doc_type,
-  status: 'draft',
-  document_no: null,
-  issue_year: null,
-  issued_at: null,
-  due_date: src.due_date ?? null,
-  customer_id: src.customer_id ?? null,
-  currency: src.currency ?? 'JPY',
-  title: src.title ?? null,
-  notes: src.notes ?? null,
-  subtotal_amount,
-  tax_amount,
-  total_amount,
-  created_by: userId,
-}
+  const newDocPayload: any = {
+    org_id: orgId,
+    doc_type: src.doc_type,
+    status: 'draft',
+    document_no: null,
+    issue_year: null,
+    issued_at: null,
+    due_date: src.due_date ?? null,
+    customer_id: src.customer_id ?? null,
+    currency: src.currency ?? 'JPY',
+    title: src.title ?? null,
+    notes: src.notes ?? null,
+    template_profile: templateProfile,
+    extended_meta: extendedMeta,
+    subtotal_amount,
+    tax_amount,
+    total_amount,
+    created_by: userId,
+  }
 
-// 新しい document の作成
-const { data: newDoc, error: insErr } = await supabase
-  .from('documents')
-  .insert(newDocPayload)
-  .select('id')
-  .single()
+  const { data: newDoc, error: insErr } = await supabase
+    .from('documents')
+    .insert(newDocPayload)
+    .select('id')
+    .single()
 
-if (insErr) return respond({ error: insErr.message }, 500)
-if (!newDoc?.id) return respond({ error: 'Failed to create draft' }, 500)
+  if (insErr) return respond({ error: insErr.message }, 500)
+  if (!newDoc?.id) return respond({ error: 'Failed to create draft' }, 500)
 
-// アイテムのコピー
-const itemsToInsert = (srcItems ?? []).map((it: any, idx: number) => ({
-  org_id: orgId, // ✅ src.org_id ではなく orgId
-  document_id: newDoc.id,
-  position: it.position ?? idx + 1,
-  description: it.description ?? null,
-  quantity: it.quantity ?? 0,
-  unit_price_amount: it.unit_price_amount ?? 0,
-  // DBトリガー計算に統一するなら送らない
-  // line_subtotal_amount: it.line_subtotal_amount ?? null,
-}))
-if (itemsToInsert.length > 0) {
-  const { error: insItemsErr } = await supabase.from('document_items').insert(itemsToInsert)
-  if (insItemsErr) return respond({ error: insItemsErr.message }, 500)
-}
+  const itemsToInsert = (srcItems ?? []).map((it: any, idx: number) => ({
+    org_id: orgId,
+    document_id: newDoc.id,
+    position: it.position ?? idx + 1,
+    description: it.description ?? null,
+    quantity: it.quantity ?? 0,
+    unit_price_amount: it.unit_price_amount ?? 0,
+  }))
 
-  // UIが取り回ししやすい返却（idだけで十分）
+  if (itemsToInsert.length > 0) {
+    const { error: insItemsErr } = await supabase.from('document_items').insert(itemsToInsert)
+    if (insItemsErr) return respond({ error: insItemsErr.message }, 500)
+  }
+
   return respond({ ok: true, id: newDoc.id }, 200)
 }

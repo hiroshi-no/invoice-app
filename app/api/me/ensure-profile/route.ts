@@ -9,6 +9,19 @@ export const dynamic = 'force-dynamic'
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
+function normalizeTemplateProfile(value: unknown): TemplateProfile {
+  const s = String(value ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function nonEmpty(value: unknown) {
+  const s = String(value ?? '').trim()
+  return s ? s : ''
+}
+
 async function getCookieStore() {
   const c: any = cookies()
   return typeof c?.then === 'function' ? await c : c
@@ -110,6 +123,7 @@ export async function POST() {
   try {
     const supabase = await createSupabaseUserClient()
     const admin = createSupabaseAdminClient()
+    const cookieStore = await getCookieStore()
 
     const {
       data: { user },
@@ -127,9 +141,17 @@ export async function POST() {
       )
     }
 
+    const entryProfileFromCookie = normalizeTemplateProfile(
+      cookieStore.get('sn_entry_profile')?.value
+    )
+    const entryPathFromCookie = nonEmpty(cookieStore.get('sn_entry_path')?.value)
+    const entrySourceFromCookie = nonEmpty(cookieStore.get('sn_entry_source')?.value)
+
     const { data: profile, error: profileError } = await admin
       .from('profiles')
-      .select('user_id, current_org_id')
+      .select(
+        'user_id, current_org_id, preferred_template_profile, entry_profile, entry_path, entry_source, onboarding_completed_at'
+      )
       .eq('user_id', user.id)
       .maybeSingle()
 
@@ -145,8 +167,17 @@ export async function POST() {
     }
 
     const currentOrgId = String((profile as any)?.current_org_id ?? '')
+    const currentEntryProfile = nonEmpty((profile as any)?.entry_profile)
+    const currentEntryPath = nonEmpty((profile as any)?.entry_path)
+    const currentEntrySource = nonEmpty((profile as any)?.entry_source)
 
-    if (UUID_RE.test(currentOrgId)) {
+    const needsProfileBackfill =
+      !nonEmpty((profile as any)?.preferred_template_profile) ||
+      !currentEntryProfile ||
+      !currentEntryPath ||
+      !currentEntrySource
+
+    if (UUID_RE.test(currentOrgId) && !needsProfileBackfill) {
       return json({
         ok: true,
         created: false,
@@ -154,34 +185,51 @@ export async function POST() {
       })
     }
 
-    let orgId: string | null = null
-
-    try {
-      orgId = await findExistingOrganization(admin, user.id)
-    } catch (e: any) {
-      return json(
-        {
-          ok: false,
-          error: 'organization_read_failed',
-          message: String(e?.message ?? e ?? 'unknown error'),
-        },
-        { status: 500 }
-      )
-    }
+    let orgId: string | null = UUID_RE.test(currentOrgId) ? currentOrgId : null
 
     if (!orgId) {
-      orgId = await createOrganization(admin, user)
+      try {
+        orgId = await findExistingOrganization(admin, user.id)
+      } catch (e: any) {
+        return json(
+          {
+            ok: false,
+            error: 'organization_read_failed',
+            message: String(e?.message ?? e ?? 'unknown error'),
+          },
+          { status: 500 }
+        )
+      }
+
+      if (!orgId) {
+        orgId = await createOrganization(admin, user)
+      }
     }
 
-    const { error: upsertError } = await admin.from('profiles').upsert(
-      {
-        user_id: user.id,
-        current_org_id: orgId,
-      },
-      {
-        onConflict: 'user_id',
-      }
-    )
+    const profilePatch: Record<string, unknown> = {
+      user_id: user.id,
+      current_org_id: orgId,
+    }
+
+    if (!nonEmpty((profile as any)?.preferred_template_profile)) {
+      profilePatch.preferred_template_profile = entryProfileFromCookie
+    }
+
+    if (!currentEntryProfile && entryProfileFromCookie) {
+      profilePatch.entry_profile = entryProfileFromCookie
+    }
+
+    if (!currentEntryPath && entryPathFromCookie) {
+      profilePatch.entry_path = entryPathFromCookie
+    }
+
+    if (!currentEntrySource && entrySourceFromCookie) {
+      profilePatch.entry_source = entrySourceFromCookie
+    }
+
+    const { error: upsertError } = await admin.from('profiles').upsert(profilePatch, {
+      onConflict: 'user_id',
+    })
 
     if (upsertError) {
       return json(
@@ -196,7 +244,7 @@ export async function POST() {
 
     return json({
       ok: true,
-      created: true,
+      created: !UUID_RE.test(currentOrgId),
       org_id: orgId,
     })
   } catch (e: any) {

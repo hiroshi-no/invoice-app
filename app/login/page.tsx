@@ -1,24 +1,65 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/browser'
 
 type BusyMode = 'login' | 'signup' | null
+type TemplateProfile = 'standard' | 'creator' | 'interior'
 
 function isValidEmail(email: string) {
   return /\S+@\S+\.\S+/.test(email)
 }
 
+function normalizeTemplateProfile(value: string | null | undefined): TemplateProfile {
+  const s = String(value ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function nonEmpty(value: string | null | undefined) {
+  const s = String(value ?? '').trim()
+  return s ? s : ''
+}
+
+function setCookie(name: string, value: string) {
+  if (typeof document === 'undefined') return
+  const secure =
+    typeof window !== 'undefined' && window.location.protocol === 'https:'
+      ? '; Secure'
+      : ''
+  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax${secure}`
+}
+
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = useMemo(() => createClient(), [])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState<BusyMode>(null)
+
+  useEffect(() => {
+    const rawEntry = searchParams.get('entry')
+    if (!rawEntry) return
+
+    const entry = normalizeTemplateProfile(rawEntry)
+    const entryPath =
+      nonEmpty(searchParams.get('entry_path')) ||
+      (entry === 'creator'
+        ? '/freelance'
+        : entry === 'interior'
+          ? '/interior'
+          : '/small-business')
+    const entrySource = nonEmpty(searchParams.get('entry_source')) || 'direct'
+
+    setCookie('sn_entry_profile', entry)
+    setCookie('sn_entry_path', entryPath)
+    setCookie('sn_entry_source', entrySource)
+  }, [searchParams])
 
   const validate = () => {
     const normalizedEmail = email.trim()
