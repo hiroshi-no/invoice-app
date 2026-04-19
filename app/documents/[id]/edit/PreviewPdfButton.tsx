@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { PreviewPayload } from './EditPageClient'
 
 type PreviewPayload = {
   customer_id?: string | null
@@ -17,12 +18,6 @@ type PreviewPayload = {
     unit_price_amount?: number | null
     line_subtotal_amount?: number | null
   }>
-}
-
-declare global {
-  interface Window {
-    __invoicePreviewState?: Record<string, PreviewPayload>
-  }
 }
 
 const CLIENT_PREVIEW_CACHE_TTL_MS = 60_000
