@@ -89,10 +89,7 @@ export default async function AdminInquiryDetailPage({ params }: Props) {
     return null
   }
 
-  const resolvedParams =
-    params && typeof (params as any)?.then === 'function'
-      ? await (params as Promise<{ id: string }>)
-      : params
+  const resolvedParams: { id: string } = await Promise.resolve(params)
 
   const id = String(resolvedParams.id ?? '').trim()
 
