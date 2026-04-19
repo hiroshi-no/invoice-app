@@ -3,23 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PreviewPayload } from './EditPageClient'
 
-type PreviewPayload = {
-  customer_id?: string | null
-  customer_name?: string | null
-  customer_honorific?: string | null
-  title?: string | null
-  notes?: string | null
-  due_date?: string | null
-  template_profile?: 'standard' | 'creator' | 'interior' | null
-  extended_meta?: Record<string, unknown> | null
-  items?: Array<{
-    description?: string | null
-    quantity?: number | null
-    unit_price_amount?: number | null
-    line_subtotal_amount?: number | null
-  }>
-}
-
 const CLIENT_PREVIEW_CACHE_TTL_MS = 60_000
 
 function stableStringify(value: any): string {
