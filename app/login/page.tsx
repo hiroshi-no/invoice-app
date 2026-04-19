@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/browser'
 
@@ -32,7 +32,7 @@ function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax${secure}`
 }
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = useMemo(() => createClient(), [])
@@ -102,9 +102,7 @@ export default function LoginPage() {
       try {
         const json = await res.json()
         message = String(json?.message ?? json?.error ?? message)
-      } catch {
-        // noop
-      }
+      } catch {}
       throw new Error(message)
     }
   }
@@ -301,5 +299,13 @@ export default function LoginPage() {
 
       {msg && <p style={{ color: 'crimson', marginTop: 12 }}>{msg}</p>}
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ maxWidth: 420, margin: '40px auto', padding: '0 16px' }}>読み込み中...</div>}>
+      <LoginPageInner />
+    </Suspense>
   )
 }
