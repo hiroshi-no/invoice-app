@@ -35,11 +35,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     return applyCookies(res, ctx.cookiesToSet)
   }
 
-  const resolvedParams =
-    params && typeof (params as any)?.then === 'function'
-      ? await (params as Promise<{ id: string }>)
-      : params
-
+  const resolvedParams: { id: string } = await Promise.resolve(params)
   const id = String(resolvedParams.id ?? '').trim()
 
   if (!id) {
