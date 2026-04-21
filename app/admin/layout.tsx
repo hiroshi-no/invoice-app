@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getAdminContext } from '@/lib/authz/getAdminContext'
@@ -5,6 +6,18 @@ import AdminNav from './AdminNav'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+    },
+  },
+}
 
 function statusChipStyle(kind: 'new' | 'in_progress'): React.CSSProperties {
   if (kind === 'in_progress') {

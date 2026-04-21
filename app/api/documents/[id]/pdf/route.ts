@@ -104,17 +104,18 @@ async function handlePreview(req: NextRequest, ctx: RouteContext, method: 'GET' 
   }
 
   const respondPdf = (pdf: Uint8Array | Buffer) => {
-    const body = Buffer.from(pdf)
-    const res = new NextResponse(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="invoice-${documentId}.pdf"`,
-        'Cache-Control': 'no-store',
-      },
-    })
-    return withCookies(res)
-  }
+  const body = Buffer.from(pdf)
+  const res = new NextResponse(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="invoice-${documentId}.pdf"`,
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+    },
+  })
+  return withCookies(res)
+}
 
   if (!UUID_RE.test(documentId)) {
     return respondErr({ error: 'invalid_document_id', message: '不正なドキュメントIDです。' }, 400)

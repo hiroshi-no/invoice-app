@@ -6,13 +6,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: '/',
-        disallow: [
-          '/api/',
-          '/documents/',
-          '/login',
-          '/forgot-password',
-          '/update-password',
-        ],
+        disallow: ['/api/'],
       },
     ],
     sitemap: 'https://seikyunote.com/sitemap.xml',
