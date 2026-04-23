@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import AppHeader from './AppHeader'
-import PlanStatusBanner from './PlanStatusBanner'
 
 type HeaderGateProps = {
   children: React.ReactNode
@@ -141,16 +140,15 @@ export default function HeaderGate({ children }: HeaderGateProps) {
       <AppHeader />
 
       <div
-        style={{
-          maxWidth: 1120,
-          margin: '0 auto',
-          width: '100%',
-          padding: '16px 16px 0',
-        }}
-      >
-        <PlanStatusBanner />
-        {err ? <div className="mt-2 text-xs text-red-600">{err}</div> : null}
-      </div>
+     style={{
+       maxWidth: 1120,
+       margin: '0 auto',
+       width: '100%',
+       padding: '16px 16px 0',
+     }}
+   >
+     {err ? <div className="mt-2 text-xs text-red-600">{err}</div> : null}
+   </div>
 
       <main
         style={{
