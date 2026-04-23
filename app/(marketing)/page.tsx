@@ -2,43 +2,43 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 export const metadata: Metadata = {
-  title: 'Seikyu Note | 請求書・見積書PDF作成アプリ',
+  title: 'Seikyu Note | 個人事業主向け 請求書・見積書作成アプリ',
   description:
-    'Seikyu Note は、請求書・見積書の作成、PDFプレビュー、保存、発行まで行えるWebアプリです。',
+    'Seikyu Note は、個人事業主やフリーランス向けの請求書・見積書作成Webアプリです。PDFプレビュー、保存、発行までシンプルに行えます。',
 }
 
 const features = [
   {
-    title: '請求書・見積書をすぐに作成',
-    body: '書類タイトル、宛先、品目、金額、備考などを入力して、必要な帳票をスムーズに作成できます。',
+    title: '見積書・請求書をすばやく作成',
+    body: '案件ごとに必要な項目を入力して、見積書や請求書をスムーズに作成できます。日々の業務の合間でも進めやすい設計です。',
   },
   {
-    title: 'PDFプレビューで事前確認',
-    body: '発行前にPDFの見た目を確認できるので、送付前のチェックや調整がしやすくなります。',
+    title: 'PDFで事前確認しやすい',
+    body: '送付前にPDFの見た目を確認できるので、個人事業主が自分で最終チェックしやすくなります。',
   },
   {
-    title: '保存・発行まで一連で管理',
-    body: '作成した書類は保存でき、発行やPDF保存までアプリ内でまとめて進められます。',
+    title: '保存・発行までまとめて進められる',
+    body: '作成した書類は保存でき、発行やPDF保存までアプリ内で一連の流れとして扱えます。',
   },
   {
-    title: '顧客情報を登録して活用',
-    body: '顧客情報を管理して、書類作成時に再利用できます。繰り返し入力の手間を減らせます。',
+    title: '顧客情報を繰り返し使いやすい',
+    body: '取引先情報を登録しておけば、毎回の入力を減らし、請求書や見積書の作成をよりスムーズにできます。',
   },
   {
-    title: 'ブランド情報を反映',
-    body: 'ロゴや事業者情報を設定して、自社に合わせた帳票デザインに整えられます。',
+    title: '屋号やロゴを反映できる',
+    body: 'ブランド情報を設定して、個人事業主として使いやすい書類の見た目に整えられます。',
   },
   {
-    title: '分かりやすい操作画面',
-    body: '複雑すぎない構成で、日々の書類作成業務に使いやすい導線を意識しています。',
+    title: 'シンプルで迷いにくい操作画面',
+    body: '多機能すぎるツールではなく、個人事業主が日常的に使いやすいわかりやすさを重視しています。',
   },
 ]
 
 const steps = [
   'アカウントを作成してログイン',
-  '請求書または見積書を新規作成',
-  '内容を入力してPDFプレビューで確認',
-  '保存・発行して業務に利用',
+  '顧客情報や案件内容を入力',
+  '見積書または請求書を作成してPDFで確認',
+  '保存・発行して取引先とのやり取りに活用',
 ]
 
 const pricingPlans = [
@@ -46,7 +46,7 @@ const pricingPlans = [
     name: 'Free',
     price: '0円',
     period: '/ 月',
-    description: 'まず試したい方向けの無料プランです。',
+    description: 'まず試したい個人事業主向けの無料プランです。',
     badge: 'はじめての方向け',
     items: [
       '請求書・見積書の作成',
@@ -64,7 +64,7 @@ const pricingPlans = [
     name: 'Starter',
     price: '980円',
     period: '/ 月',
-    description: '日常業務で継続利用しやすい標準プランです。',
+    description: '日々の請求業務で継続利用しやすい標準プランです。',
     badge: 'おすすめ',
     items: [
       'Freeの全機能',
@@ -75,15 +75,15 @@ const pricingPlans = [
       'ブランド設定',
       'テンプレート複数選択',
     ],
-    ctaLabel: 'Starterを見る',
-    ctaHref: '/contact',
+    ctaLabel: 'Starterの詳細を見る',
+    ctaHref: '/pricing#starter',
     featured: true,
   },
   {
     name: 'Standard',
     price: '2,980円',
     period: '/ 月',
-    description: '本格運用や継続管理に向いた上位プランです。',
+    description: '案件数が多い方や継続管理を重視する方向けの上位プランです。',
     badge: '業務利用向け',
     items: [
       'Starterの全機能',
@@ -94,8 +94,8 @@ const pricingPlans = [
       'CSV出力',
       '月次レポート',
     ],
-    ctaLabel: 'Standardを見る',
-    ctaHref: '/contact',
+    ctaLabel: 'Standardの詳細を見る',
+    ctaHref: '/pricing#standard',
     featured: false,
   },
 ]
@@ -134,7 +134,7 @@ export default function HomePage() {
                 marginBottom: 16,
               }}
             >
-              請求書・見積書PDFアプリ
+              個人事業主・フリーランス向け
             </div>
 
             <h1
@@ -148,9 +148,9 @@ export default function HomePage() {
             >
               Seikyu Note
               <br />
-              請求書・見積書の作成を、
+              個人事業主のための、
               <br />
-              もっとシンプルに
+              かんたん請求書・見積書作成
             </h1>
 
             <p
@@ -162,9 +162,10 @@ export default function HomePage() {
                 maxWidth: 720,
               }}
             >
-              Seikyu Note は、請求書・見積書の作成、PDFプレビュー、保存、発行までを
-              ひとつの流れで管理できるWebアプリです。
-              日々の書類業務を、分かりやすく扱いやすい形に整えます。
+              Seikyu Note は、個人事業主やフリーランスが請求書・見積書を
+              手早く作成できるWebアプリです。
+              本業の合間でも使いやすく、PDFプレビュー、保存、発行までを
+              シンプルな流れで進められます。
             </p>
 
             <div
@@ -187,24 +188,24 @@ export default function HomePage() {
                   fontWeight: 700,
                 }}
               >
-                ログイン / 新規登録
+                無料で始める
               </Link>
 
               <Link
-                href="/contact"
-                style={{
-                  display: 'inline-block',
-                  textDecoration: 'none',
-                  background: '#fff',
-                  color: '#111827',
-                  padding: '14px 18px',
-                  borderRadius: 10,
-                  fontWeight: 700,
-                  border: '1px solid #d1d5db',
-                }}
-              >
-                お問い合わせ
-              </Link>
+                 href="/pricing"
+                 style={{
+                   display: 'inline-block',
+                   textDecoration: 'none',
+                   background: '#fff',
+                   color: '#111827',
+                   padding: '14px 18px',
+                   borderRadius: 10,
+                   fontWeight: 700,
+                   border: '1px solid #d1d5db',
+                 }}
+               >
+                 料金プランを見る
+               </Link>
             </div>
 
             <div
@@ -217,11 +218,11 @@ export default function HomePage() {
                 color: '#6b7280',
               }}
             >
-              <span>請求書・見積書作成</span>
-              <span>PDFプレビュー</span>
-              <span>PDF保存</span>
-              <span>顧客管理</span>
-              <span>ブランド設定</span>
+              <span>個人事業主向け</span>
+              <span>請求書・見積書をすばやく作成</span>
+              <span>PDFで保存・共有しやすい</span>
+              <span>顧客情報を使い回しやすい</span>
+              <span>シンプルで迷いにくい</span>
             </div>
           </div>
 
@@ -312,7 +313,7 @@ export default function HomePage() {
               margin: 0,
             }}
           >
-            Seikyu Note でできること
+            個人事業主に使いやすい機能
           </h2>
           <p
             style={{
@@ -322,7 +323,7 @@ export default function HomePage() {
               maxWidth: 760,
             }}
           >
-            日々の請求書・見積書作成に必要な機能を、使いやすい流れでまとめています。
+            日々の請求書・見積書作成に必要な機能を、個人事業主が使いやすい流れでまとめています。
           </p>
 
           <div
@@ -394,6 +395,17 @@ export default function HomePage() {
           >
             ご利用の流れ
           </h2>
+
+          <p
+            style={{
+              marginTop: 14,
+              color: '#4b5563',
+              lineHeight: 1.9,
+              maxWidth: 760,
+            }}
+          >
+            はじめてでも迷いにくいよう、個人事業主が使いやすい流れを意識しています。
+          </p>
 
           <div
             style={{
@@ -472,8 +484,8 @@ export default function HomePage() {
               maxWidth: 760,
             }}
           >
-            まずは無料で使い始めて、業務量に合わせてアップグレードできます。
-            基本作成は無料で試せて、発行数やブランド設定などの継続利用向け機能を有料プランで拡張できます。
+            まずは無料で使い始めて、案件数や取引量に合わせてアップグレードできます。
+            個人事業主やフリーランスが、必要な範囲から無理なく導入しやすい料金設計です。
           </p>
 
           <div
@@ -528,7 +540,9 @@ export default function HomePage() {
                 margin: 0,
               }}
             >
-              Seikyu Note を始める
+              個人事業主の請求業務を、
+              <br />
+              もっと軽く
             </h2>
 
             <p
@@ -539,8 +553,8 @@ export default function HomePage() {
                 maxWidth: 760,
               }}
             >
-              ログイン・新規登録後すぐに書類作成を始められます。
-              導入前のご相談や機能に関するお問い合わせも受け付けています。
+              ログイン・新規登録後すぐに、見積書・請求書の作成を始められます。
+              本業の合間でも使いやすい、シンプルな帳票作成環境を整えたい方に向いています。
             </p>
 
             <div
@@ -563,7 +577,7 @@ export default function HomePage() {
                   fontWeight: 700,
                 }}
               >
-                ログイン / 新規登録
+                無料で始める
               </Link>
 
               <Link
@@ -607,9 +621,7 @@ function EntryLinksSection() {
             letterSpacing: 0.04,
             marginBottom: 8,
           }}
-        >
-          
-        </div>
+        />
 
         <h2
           style={{
@@ -620,7 +632,7 @@ function EntryLinksSection() {
             lineHeight: 1.35,
           }}
         >
-          ご利用シーンに合わせて始められます
+          個人事業主の働き方に合わせて始められます
         </h2>
 
         <p
@@ -632,8 +644,8 @@ function EntryLinksSection() {
             maxWidth: 760,
           }}
         >
-          個人事業主全般で使えますが、用途に近い入口から始めることで、
-          初期設定や案内をより分かりやすくできます。
+          個人事業主全般で使えますが、仕事内容に近い入口から始めることで、
+          初期設定や使い方をより分かりやすく確認できます。
         </p>
       </div>
 

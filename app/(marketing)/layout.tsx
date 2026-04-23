@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
+import type { ReactNode } from 'react'
 import Link from 'next/link'
+import MarketingHeader from '@/app/components/MarketingHeader'
 
 export const metadata: Metadata = {
   robots: {
@@ -11,7 +13,7 @@ export const metadata: Metadata = {
 export default function MarketingLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <div
@@ -22,6 +24,8 @@ export default function MarketingLayout({
         background: '#ffffff',
       }}
     >
+      <MarketingHeader />
+
       <div style={{ flex: 1 }}>{children}</div>
 
       <footer
@@ -40,12 +44,57 @@ export default function MarketingLayout({
             flexWrap: 'wrap',
             gap: 16,
             fontSize: 14,
+            alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
-          <Link href="/privacy">プライバシーポリシー</Link>
-          <Link href="/terms">利用規約</Link>
-          <Link href="/legal">特定商取引法に基づく表記</Link>
-          <Link href="/contact">お問い合わせ</Link>
+          <div
+            style={{
+              color: '#6b7280',
+              fontSize: 13,
+            }}
+          >
+            © {new Date().getFullYear()} Seikyu Note
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 16,
+            }}
+          >
+            <Link
+              href="/pricing"
+              style={{ color: '#374151', textDecoration: 'none' }}
+            >
+              料金プラン
+            </Link>
+            <Link
+              href="/privacy"
+              style={{ color: '#374151', textDecoration: 'none' }}
+            >
+              プライバシーポリシー
+            </Link>
+            <Link
+              href="/terms"
+              style={{ color: '#374151', textDecoration: 'none' }}
+            >
+              利用規約
+            </Link>
+            <Link
+              href="/legal"
+              style={{ color: '#374151', textDecoration: 'none' }}
+            >
+              特定商取引法に基づく表記
+            </Link>
+            <Link
+              href="/contact"
+              style={{ color: '#374151', textDecoration: 'none' }}
+            >
+              お問い合わせ
+            </Link>
+          </div>
         </div>
       </footer>
     </div>
