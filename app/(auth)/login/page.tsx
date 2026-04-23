@@ -32,6 +32,15 @@ function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax${secure}`
 }
 
+function getSafeNextPath(raw: string | null) {
+  const next = String(raw ?? '').trim()
+  if (!next) return '/documents'
+  if (!next.startsWith('/')) return '/documents'
+  if (next.startsWith('//')) return '/documents'
+  if (next.startsWith('/login')) return '/documents'
+  return next
+}
+
 function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -41,6 +50,10 @@ function LoginPageInner() {
   const [password, setPassword] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState<BusyMode>(null)
+
+  const nextPath = useMemo(() => {
+    return getSafeNextPath(searchParams.get('next'))
+  }, [searchParams])
 
   useEffect(() => {
     const rawEntry = searchParams.get('entry')
@@ -110,6 +123,10 @@ function LoginPageInner() {
   const getFriendlyErrorMessage = (raw: string, mode: 'login' | 'signup') => {
     const message = String(raw || '').toLowerCase()
 
+    if (message.includes('refresh token not found') || message.includes('invalid refresh token')) {
+      return 'ログイン情報の復元に失敗しました。もう一度お試しください。'
+    }
+
     if (mode === 'login') {
       if (message.includes('invalid login credentials')) {
         return 'メールアドレスまたはパスワードが正しくありません。'
@@ -131,6 +148,10 @@ function LoginPageInner() {
     return raw || '新規登録に失敗しました。'
   }
 
+  const clearLocalSession = async () => {
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+  }
+
   const onLogin = async () => {
     if (busy) return
     setMsg(null)
@@ -141,6 +162,8 @@ function LoginPageInner() {
 
     try {
       const normalizedEmail = email.trim()
+
+      await clearLocalSession()
 
       const { error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
@@ -154,7 +177,7 @@ function LoginPageInner() {
 
       await ensureProfile()
 
-      router.push('/documents')
+      router.replace(nextPath)
       router.refresh()
     } catch (e: any) {
       setMsg(String(e?.message ?? 'ログインに失敗しました。'))
@@ -174,7 +197,9 @@ function LoginPageInner() {
     try {
       const normalizedEmail = email.trim()
 
-      const { error: signUpError } = await supabase.auth.signUp({
+      await clearLocalSession()
+
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
       })
@@ -184,19 +209,21 @@ function LoginPageInner() {
         return
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      })
+      if (!signUpData.session) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        })
 
-      if (signInError) {
-        setMsg(getFriendlyErrorMessage(signInError.message, 'login'))
-        return
+        if (signInError) {
+          setMsg(getFriendlyErrorMessage(signInError.message, 'login'))
+          return
+        }
       }
 
       await ensureProfile()
 
-      router.push('/documents')
+      router.replace(nextPath)
       router.refresh()
     } catch (e: any) {
       setMsg(String(e?.message ?? '新規登録に失敗しました。'))
@@ -304,7 +331,13 @@ function LoginPageInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div style={{ maxWidth: 420, margin: '40px auto', padding: '0 16px' }}>読み込み中...</div>}>
+    <Suspense
+      fallback={
+        <div style={{ maxWidth: 420, margin: '40px auto', padding: '0 16px' }}>
+          読み込み中...
+        </div>
+      }
+    >
       <LoginPageInner />
     </Suspense>
   )
