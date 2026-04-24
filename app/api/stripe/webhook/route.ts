@@ -50,6 +50,57 @@ function isEntitledStripeStatus(status: string | null | undefined) {
   return s === 'active' || s === 'trialing'
 }
 
+function getFlexibleBillingModeType(subscription: Stripe.Subscription) {
+  const raw = subscription as any
+  return String(raw?.billing_mode?.type ?? '').toLowerCase()
+}
+
+function getCurrentPeriodEndIso(subscription: Stripe.Subscription) {
+  const raw = subscription as any
+
+  if (typeof raw?.current_period_end === 'number' && Number.isFinite(raw.current_period_end)) {
+    return unixToIso(raw.current_period_end)
+  }
+
+  const firstItem = subscription.items?.data?.[0] ?? null
+  const itemCurrentPeriodEnd = (firstItem as any)?.current_period_end
+
+  if (typeof itemCurrentPeriodEnd === 'number' && Number.isFinite(itemCurrentPeriodEnd)) {
+    return unixToIso(itemCurrentPeriodEnd)
+  }
+
+  if (typeof raw?.cancel_at === 'number' && Number.isFinite(raw.cancel_at)) {
+    return unixToIso(raw.cancel_at)
+  }
+
+  return null
+}
+
+function isScheduledForCancel(subscription: Stripe.Subscription) {
+  if (subscription.cancel_at_period_end) return true
+
+  const raw = subscription as any
+  return (
+    getFlexibleBillingModeType(subscription) === 'flexible' &&
+    typeof raw?.cancel_at === 'number' &&
+    Number.isFinite(raw.cancel_at)
+  )
+}
+
+function mapAppSubscriptionStatus(
+  eventType: string,
+  stripeStatus: string | null | undefined
+): 'active' | 'trialing' | 'past_due' | 'canceled' {
+  if (eventType === 'customer.subscription.deleted') return 'canceled'
+
+  const s = String(stripeStatus ?? '').toLowerCase()
+  if (s === 'trialing') return 'trialing'
+  if (s === 'past_due') return 'past_due'
+  if (s === 'active') return 'active'
+
+  return 'canceled'
+}
+
 async function markEventProcessed(
   supabase: ReturnType<typeof createAdminSupabase>,
   eventId: string,
@@ -193,8 +244,8 @@ async function handleSubscriptionChanged(
   const stripeStatus = String(subscription.status ?? '').toLowerCase()
   const firstItem = subscription.items?.data?.[0] ?? null
   const stripePriceId = firstItem?.price?.id ?? null
-  const currentPeriodEnd = unixToIso(firstItem?.current_period_end ?? null)
-  const cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end)
+  const currentPeriodEnd = getCurrentPeriodEndIso(subscription)
+  const cancelAtPeriodEnd = isScheduledForCancel(subscription)
 
   const entitled = isEntitledStripeStatus(stripeStatus)
   const nextPlanKey =
@@ -204,7 +255,7 @@ async function handleSubscriptionChanged(
         ? getPlanKeyFromPriceId(stripePriceId)
         : 'free'
 
-  const appStatus = eventType === 'customer.subscription.deleted' ? 'canceled' : 'active'
+  const appStatus = mapAppSubscriptionStatus(eventType, stripeStatus)
 
   await upsertSubscriptionRow(supabase, orgId, {
     plan_key: nextPlanKey,
