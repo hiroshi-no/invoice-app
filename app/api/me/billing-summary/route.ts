@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import type Stripe from 'stripe'
 
 import { getOrgPlan } from '@/lib/billing/getOrgPlan'
 import { getCurrentOrgIdForUser } from '@/lib/org/getCurrentOrgId'
@@ -85,6 +86,59 @@ function toIsoOrNull(v: any) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+function unixToIso(v: number | null | undefined) {
+  if (!v || !Number.isFinite(v)) return null
+  return new Date(v * 1000).toISOString()
+}
+
+function getStripeFlexibleBillingModeType(subscription: Stripe.Subscription | null | undefined) {
+  const raw = subscription as any
+  return String(raw?.billing_mode?.type ?? '').toLowerCase()
+}
+
+function getStripeCurrentPeriodEndIso(subscription: Stripe.Subscription | null | undefined) {
+  if (!subscription) return null
+
+  const raw = subscription as any
+
+  if (typeof raw?.current_period_end === 'number' && Number.isFinite(raw.current_period_end)) {
+    return unixToIso(raw.current_period_end)
+  }
+
+  const firstItem = subscription.items?.data?.[0] ?? null
+  const itemCurrentPeriodEnd = (firstItem as any)?.current_period_end
+
+  if (typeof itemCurrentPeriodEnd === 'number' && Number.isFinite(itemCurrentPeriodEnd)) {
+    return unixToIso(itemCurrentPeriodEnd)
+  }
+
+  return null
+}
+
+function getStripeScheduledCancelAtIso(subscription: Stripe.Subscription | null | undefined) {
+  if (!subscription) return null
+
+  const raw = subscription as any
+
+  if (typeof raw?.cancel_at === 'number' && Number.isFinite(raw.cancel_at)) {
+    return unixToIso(raw.cancel_at)
+  }
+
+  return getStripeCurrentPeriodEndIso(subscription)
+}
+
+function isStripeScheduledForCancel(subscription: Stripe.Subscription | null | undefined) {
+  if (!subscription) return false
+  if (subscription.cancel_at_period_end) return true
+
+  const raw = subscription as any
+  return (
+    getStripeFlexibleBillingModeType(subscription) === 'flexible' &&
+    typeof raw?.cancel_at === 'number' &&
+    Number.isFinite(raw.cancel_at)
+  )
+}
+
 export async function GET() {
   try {
     const supabase = await createSupabase()
@@ -151,7 +205,7 @@ export async function GET() {
     let stripeStatus: string | null = subscription?.stripe_status ?? null
     let currentPeriodEnd: string | null = toIsoOrNull(subscription?.current_period_end ?? null)
     let cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end)
-    let scheduledCancelAt: string | null = null
+    let scheduledCancelAt: string | null = cancelAtPeriodEnd ? currentPeriodEnd : null
     const stripeSubscriptionId = String(subscription?.stripe_subscription_id ?? '').trim()
 
     // Stripe を正本として補正
@@ -161,21 +215,20 @@ export async function GET() {
         const stripeSub = await stripe.subscriptions.retrieve(stripeSubscriptionId)
 
         stripeStatus = String(stripeSub.status ?? '').toLowerCase() || stripeStatus
-        cancelAtPeriodEnd = Boolean(stripeSub.cancel_at_period_end)
 
-        if (stripeSub.cancel_at) {
-          scheduledCancelAt = new Date(stripeSub.cancel_at * 1000).toISOString()
+        const stripeCancelScheduled = isStripeScheduledForCancel(stripeSub)
+        const stripeResolvedCurrentPeriodEnd = getStripeCurrentPeriodEndIso(stripeSub)
+        const stripeResolvedScheduledCancelAt = stripeCancelScheduled
+          ? getStripeScheduledCancelAtIso(stripeSub)
+          : null
+
+        cancelAtPeriodEnd = stripeCancelScheduled
+
+        if (stripeResolvedCurrentPeriodEnd) {
+          currentPeriodEnd = stripeResolvedCurrentPeriodEnd
         }
- 
-        if ('current_period_end' in stripeSub && stripeSub.current_period_end) {
-          currentPeriodEnd = new Date((stripeSub as any).current_period_end * 1000).toISOString()
-        } else {
-          const firstItem = stripeSub.items?.data?.[0] ?? null
-          const itemPeriodEnd = firstItem?.current_period_end ?? null
-          if (itemPeriodEnd) {
-         currentPeriodEnd = new Date(itemPeriodEnd * 1000).toISOString()
-          }
-        }
+
+        scheduledCancelAt = stripeResolvedScheduledCancelAt
       } catch (e) {
         console.error('[billing-summary] stripe retrieve failed', {
           orgId,
