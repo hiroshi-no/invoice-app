@@ -5,28 +5,48 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 
 type Kind = 'document' | 'customers' | 'branding'
 type PlanKey = 'free' | 'starter' | 'standard'
+type Tone = 'neutral' | 'warning' | 'danger'
 
 type BillingSummary = {
   planKey: PlanKey
   yearMonth: string
+
   issuedCount: number
   savedPdfCount: number
+
   issuedLimit: number | null
   issuedRemaining: number | null
+
   savedPdfLimit: number | null
   savedPdfRemaining: number | null
+
   customerCount: number
   customerLimit: number | null
   customerRemaining: number | null
+
   brandingEnabled: boolean
+
+  stripeStatus: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  scheduledCancelAt: string | null
+}
+
+type BillingSummaryResponse = {
+  ok: boolean
+  billing?: BillingSummary
+  error?: string
+  message?: string
 }
 
 type BannerMessage = {
+  tone: Tone
   title: string
   body: string
   ctaLabel?: string
   ctaHref?: string
   note?: string
+  badgeLabel?: string
 }
 
 function planLabel(planKey: PlanKey) {
@@ -42,25 +62,33 @@ function planLabel(planKey: PlanKey) {
   }
 }
 
-function isUpgradeRecommended(kind: Kind, billing: BillingSummary) {
-  if (kind === 'document') {
-    if (billing.issuedRemaining === 0 && billing.issuedLimit != null) return true
-    if (billing.savedPdfRemaining === 0 && billing.savedPdfLimit != null) return true
-  }
+function formatDate(value: string | null | undefined) {
+  if (!value) return null
 
-  if (kind === 'customers' && billing.customerRemaining === 0 && billing.customerLimit != null) {
-    return true
-  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
 
-  if (kind === 'branding' && !billing.brandingEnabled) {
-    return true
-  }
-
-  return false
+  return new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
 }
 
-function getTone(kind: Kind, billing: BillingSummary) {
-  if (isUpgradeRecommended(kind, billing)) {
+function getTone(tone: Tone) {
+  if (tone === 'danger') {
+    return {
+      border: '#fecaca',
+      bg: '#fef2f2',
+      text: '#991b1b',
+      badgeBg: '#fee2e2',
+      badgeText: '#991b1b',
+      buttonBg: '#991b1b',
+      buttonText: '#ffffff',
+    }
+  }
+
+  if (tone === 'warning') {
     return {
       border: '#f59e0b',
       bg: '#fffbeb',
@@ -83,9 +111,25 @@ function getTone(kind: Kind, billing: BillingSummary) {
   }
 }
 
-function buildDocumentMessage(billing: BillingSummary): BannerMessage {
-  const title = `現在プラン: ${planLabel(billing.planKey)}`
+function buildCancelMessage(billing: BillingSummary): BannerMessage | null {
+  if (!billing.cancelAtPeriodEnd && !billing.scheduledCancelAt) return null
 
+  const scheduledAt = billing.scheduledCancelAt ?? billing.currentPeriodEnd
+  const endDate = formatDate(scheduledAt)
+  const plan = planLabel(billing.planKey)
+
+  return {
+    tone: 'warning',
+    title: '契約中（次回更新なし）',
+    body: endDate
+      ? `${endDate} に終了予定です。終了までは ${plan} を利用できます。`
+      : `現在の契約は次回更新されません。終了までは ${plan} を利用できます。`,
+    ctaLabel: '請求情報を管理',
+    ctaHref: '/settings/billing',
+  }
+}
+
+function buildDocumentMessage(billing: BillingSummary): BannerMessage | null {
   const issuedLine =
     billing.issuedLimit == null
       ? `発行数: ${billing.issuedCount} 件（上限なし）`
@@ -96,105 +140,138 @@ function buildDocumentMessage(billing: BillingSummary): BannerMessage {
       ? `PDF保存数: ${billing.savedPdfCount} 件（上限なし）`
       : `PDF保存数: ${billing.savedPdfCount} / ${billing.savedPdfLimit} 件`
 
-  if (billing.issuedRemaining === 0 && billing.issuedLimit != null) {
+  const note = `${issuedLine} / ${savedPdfLine}`
+
+  if (
+    billing.issuedLimit != null &&
+    billing.issuedRemaining != null &&
+    billing.issuedRemaining <= 0
+  ) {
     return {
-      title,
-      body: `今月の発行上限に達しています。`,
-      note: `${issuedLine} / ${savedPdfLine}`,
+      tone: 'danger',
+      title: '今月の発行上限に達しています',
+      body: 'これ以上書類を発行するには、プラン変更が必要です。',
+      note,
+      badgeLabel: '要アップグレード',
       ctaLabel: 'プランを確認する',
       ctaHref: '/settings/billing',
     }
   }
 
-  if (billing.savedPdfRemaining === 0 && billing.savedPdfLimit != null) {
+  if (
+    billing.savedPdfLimit != null &&
+    billing.savedPdfRemaining != null &&
+    billing.savedPdfRemaining <= 0
+  ) {
     return {
-      title,
-      body: `今月のPDF保存上限に達しています。`,
-      note: `${issuedLine} / ${savedPdfLine}`,
+      tone: 'danger',
+      title: '今月のPDF保存上限に達しています',
+      body: 'これ以上PDFを保存するには、プラン変更が必要です。',
+      note,
+      badgeLabel: '要アップグレード',
       ctaLabel: 'プランを確認する',
       ctaHref: '/settings/billing',
     }
   }
 
-  if (billing.issuedLimit == null && billing.savedPdfLimit == null) {
+  if (
+    billing.issuedLimit != null &&
+    billing.issuedRemaining != null &&
+    billing.issuedRemaining <= 3
+  ) {
     return {
-      title,
-      body: `今月の書類機能は上限なく利用できます。`,
-      note: `${issuedLine} / ${savedPdfLine}`,
-    }
-  }
-
-  if (billing.issuedLimit == null) {
-    return {
-      title,
-      body: `発行数制限はありません。PDF保存状況を確認できます。`,
-      note: `${issuedLine} / ${savedPdfLine}`,
-    }
-  }
-
-  if (billing.savedPdfLimit == null) {
-    return {
-      title,
+      tone: 'warning',
+      title: '今月の発行可能数が少なくなっています',
       body: `今月の発行可能数は残り ${billing.issuedRemaining} 件です。`,
-      note: `${issuedLine} / ${savedPdfLine}`,
-    }
-  }
-
-  return {
-    title,
-    body: `今月の発行可能数は残り ${billing.issuedRemaining} 件です。PDF保存状況も確認できます。`,
-    note: `${issuedLine} / ${savedPdfLine}`,
-  }
-}
-
-function buildCustomersMessage(billing: BillingSummary): BannerMessage {
-  const title = `現在プラン: ${planLabel(billing.planKey)}`
-
-  if (billing.customerLimit == null) {
-    return {
-      title,
-      body: `現在のプランでは顧客数制限はありません。現在の登録数: ${billing.customerCount} 件`,
-    }
-  }
-
-  if (billing.customerRemaining === 0) {
-    return {
-      title,
-      body: `無料プランの顧客上限に達しています。現在の登録数: ${billing.customerCount} / ${billing.customerLimit} 件`,
+      note,
       ctaLabel: 'プランを確認する',
       ctaHref: '/settings/billing',
     }
   }
 
-  return {
-    title,
-    body: `無料プランでは顧客は ${billing.customerLimit} 件まで登録できます。現在の登録数: ${billing.customerCount} / ${billing.customerLimit} 件`,
-  }
-}
-
-function buildBrandingMessage(billing: BillingSummary): BannerMessage {
-  const title = `現在プラン: ${planLabel(billing.planKey)}`
-
-  if (billing.brandingEnabled) {
+  if (
+    billing.savedPdfLimit != null &&
+    billing.savedPdfRemaining != null &&
+    billing.savedPdfRemaining <= 5
+  ) {
     return {
-      title,
-      body: `現在のプランではブランド設定とロゴを利用できます。`,
+      tone: 'warning',
+      title: 'PDF保存数の上限が近づいています',
+      body: `今月のPDF保存可能数は残り ${billing.savedPdfRemaining} 件です。`,
+      note,
+      ctaLabel: 'プランを確認する',
+      ctaHref: '/settings/billing',
     }
   }
 
+  return null
+}
+
+function buildCustomersMessage(billing: BillingSummary): BannerMessage | null {
+  if (billing.customerLimit == null || billing.customerRemaining == null) {
+    return null
+  }
+
+  const note = `現在の登録数: ${billing.customerCount} / ${billing.customerLimit} 件`
+
+  if (billing.customerRemaining <= 0) {
+    return {
+      tone: 'danger',
+      title: '顧客登録数の上限に達しています',
+      body: 'これ以上顧客を追加するには、プラン変更が必要です。',
+      note,
+      badgeLabel: '要アップグレード',
+      ctaLabel: 'プランを確認する',
+      ctaHref: '/settings/billing',
+    }
+  }
+
+  if (billing.customerRemaining <= 3) {
+    return {
+      tone: 'warning',
+      title: '顧客登録数の上限が近づいています',
+      body: `あと ${billing.customerRemaining} 件まで顧客を登録できます。`,
+      note,
+      ctaLabel: 'プランを確認する',
+      ctaHref: '/settings/billing',
+    }
+  }
+
+  return null
+}
+
+function buildBrandingMessage(billing: BillingSummary): BannerMessage | null {
+  if (billing.brandingEnabled) return null
+
   return {
-    title,
-    body: `ブランド設定とロゴは Starter 以上で利用できます。`,
+    tone: 'warning',
+    title: 'ブランド設定は現在のプランでは利用できません',
+    body: 'ロゴ、カラー、発行者情報などのブランド設定を使うには、Starter 以上のプランが必要です。',
+    badgeLabel: 'プラン制限',
     ctaLabel: 'プランを確認する',
     ctaHref: '/settings/billing',
   }
+}
+
+function buildKindMessage(billing: BillingSummary, kind?: Kind): BannerMessage | null {
+  if (!kind) return null
+
+  if (kind === 'document') {
+    return buildDocumentMessage(billing)
+  }
+
+  if (kind === 'customers') {
+    return buildCustomersMessage(billing)
+  }
+
+  return buildBrandingMessage(billing)
 }
 
 export default function PlanStatusBanner({
   kind,
   style,
 }: {
-  kind: Kind
+  kind?: Kind
   style?: CSSProperties
 }) {
   const [billing, setBilling] = useState<BillingSummary | null>(null)
@@ -211,7 +288,7 @@ export default function PlanStatusBanner({
           credentials: 'include',
         })
 
-        const json = await res.json()
+        const json = (await res.json()) as BillingSummaryResponse
 
         if (!alive) return
 
@@ -234,93 +311,107 @@ export default function PlanStatusBanner({
     }
   }, [])
 
-  const message = useMemo<BannerMessage | null>(() => {
-    if (!billing) return null
+  const messages = useMemo<BannerMessage[]>(() => {
+    if (!billing) return []
 
-    if (kind === 'document') {
-      return buildDocumentMessage(billing)
-    }
+    const list: BannerMessage[] = []
 
-    if (kind === 'customers') {
-      return buildCustomersMessage(billing)
-    }
+    const cancelMessage = buildCancelMessage(billing)
+    const kindMessage = buildKindMessage(billing, kind)
 
-    return buildBrandingMessage(billing)
+    if (cancelMessage) list.push(cancelMessage)
+    if (kindMessage) list.push(kindMessage)
+
+    return list
   }, [billing, kind])
 
-  if (loading || !billing || !message) return null
-
-  const tone = getTone(kind, billing)
-  const showUpgradeBadge = isUpgradeRecommended(kind, billing)
+  if (loading || !billing || messages.length === 0) return null
 
   return (
     <div
       style={{
-        border: `1px solid ${tone.border}`,
-        background: tone.bg,
-        color: tone.text,
-        borderRadius: 12,
-        padding: '12px 14px',
+        display: 'grid',
+        gap: 8,
         margin: '0 0 16px',
         ...style,
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ flex: '1 1 420px', minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{message.title}</div>
-          <div style={{ fontSize: 14, lineHeight: 1.6 }}>{message.body}</div>
+      {messages.map((message, index) => {
+        const tone = getTone(message.tone)
 
-          {message.note ? (
-            <div style={{ fontSize: 12, lineHeight: 1.6, marginTop: 6, opacity: 0.9 }}>
-              {message.note}
-            </div>
-          ) : null}
-        </div>
-
-        {showUpgradeBadge ? (
+        return (
           <div
+            key={`${message.title}-${index}`}
             style={{
-              fontSize: 12,
-              fontWeight: 700,
-              padding: '6px 8px',
-              borderRadius: 999,
-              background: tone.badgeBg,
-              color: tone.badgeText,
-              whiteSpace: 'nowrap',
+              border: `1px solid ${tone.border}`,
+              background: tone.bg,
+              color: tone.text,
+              borderRadius: 12,
+              padding: '12px 14px',
             }}
           >
-            要アップグレード
-          </div>
-        ) : null}
-      </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+                  {message.title}
+                </div>
 
-      {message.ctaLabel && message.ctaHref ? (
-        <div style={{ marginTop: 10 }}>
-          <Link
-            href={message.ctaHref}
-            style={{
-              display: 'inline-block',
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: tone.buttonBg,
-              color: tone.buttonText,
-              textDecoration: 'none',
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
-            {message.ctaLabel}
-          </Link>
-        </div>
-      ) : null}
+                <div style={{ fontSize: 14, lineHeight: 1.6 }}>{message.body}</div>
+
+                {message.note ? (
+                  <div style={{ fontSize: 12, lineHeight: 1.6, marginTop: 6, opacity: 0.9 }}>
+                    {message.note}
+                  </div>
+                ) : null}
+              </div>
+
+              {message.badgeLabel ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '6px 8px',
+                    borderRadius: 999,
+                    background: tone.badgeBg,
+                    color: tone.badgeText,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {message.badgeLabel}
+                </div>
+              ) : null}
+            </div>
+
+            {message.ctaLabel && message.ctaHref ? (
+              <div style={{ marginTop: 10 }}>
+                <Link
+                  href={message.ctaHref}
+                  style={{
+                    display: 'inline-block',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: tone.buttonBg,
+                    color: tone.buttonText,
+                    textDecoration: 'none',
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {message.ctaLabel}
+                </Link>
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
     </div>
   )
 }
