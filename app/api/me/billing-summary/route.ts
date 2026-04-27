@@ -29,7 +29,7 @@ function getUiLimits(planKey: PlanKey) {
     case 'free':
       return {
         issuedLimit: 5,
-        savedPdfLimit: 5,
+        savedPdfLimit: 30,
         customerLimit: 10,
         brandingEnabled: false,
       }

@@ -135,12 +135,7 @@ function buildDocumentMessage(billing: BillingSummary): BannerMessage | null {
       ? `発行数: ${billing.issuedCount} 件（上限なし）`
       : `発行数: ${billing.issuedCount} / ${billing.issuedLimit} 件`
 
-  const savedPdfLine =
-    billing.savedPdfLimit == null
-      ? `PDF保存数: ${billing.savedPdfCount} 件（上限なし）`
-      : `PDF保存数: ${billing.savedPdfCount} / ${billing.savedPdfLimit} 件`
-
-  const note = `${issuedLine} / ${savedPdfLine}`
+  const note = issuedLine
 
   if (
     billing.issuedLimit != null &&
@@ -159,22 +154,6 @@ function buildDocumentMessage(billing: BillingSummary): BannerMessage | null {
   }
 
   if (
-    billing.savedPdfLimit != null &&
-    billing.savedPdfRemaining != null &&
-    billing.savedPdfRemaining <= 0
-  ) {
-    return {
-      tone: 'danger',
-      title: '今月のPDF保存上限に達しています',
-      body: 'これ以上PDFを保存するには、プラン変更が必要です。',
-      note,
-      badgeLabel: '要アップグレード',
-      ctaLabel: 'プランを確認する',
-      ctaHref: '/settings/billing',
-    }
-  }
-
-  if (
     billing.issuedLimit != null &&
     billing.issuedRemaining != null &&
     billing.issuedRemaining <= 3
@@ -183,21 +162,6 @@ function buildDocumentMessage(billing: BillingSummary): BannerMessage | null {
       tone: 'warning',
       title: '今月の発行可能数が少なくなっています',
       body: `今月の発行可能数は残り ${billing.issuedRemaining} 件です。`,
-      note,
-      ctaLabel: 'プランを確認する',
-      ctaHref: '/settings/billing',
-    }
-  }
-
-  if (
-    billing.savedPdfLimit != null &&
-    billing.savedPdfRemaining != null &&
-    billing.savedPdfRemaining <= 5
-  ) {
-    return {
-      tone: 'warning',
-      title: 'PDF保存数の上限が近づいています',
-      body: `今月のPDF保存可能数は残り ${billing.savedPdfRemaining} 件です。`,
       note,
       ctaLabel: 'プランを確認する',
       ctaHref: '/settings/billing',

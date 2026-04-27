@@ -10,7 +10,7 @@ export const PLAN_LIMITS = {
   free: {
     monthlyIssues: 5,
     maxCustomers: 10,
-    maxSavedPdfHistory: 5,
+    maxSavedPdfHistory: 30,
     brandingEnabled: false,
   },
   starter: {
