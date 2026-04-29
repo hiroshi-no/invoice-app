@@ -362,7 +362,7 @@ export default function EditPageClient({
           >
             1. 請求先を選択または入力
             <br />
-            2. 帳票タイトルを確認
+            2. 帳票タイプと追加項目を確認
             <br />
             3. {dueDateLabel} を設定
             <br />

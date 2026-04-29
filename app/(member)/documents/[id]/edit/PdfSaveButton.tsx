@@ -2,6 +2,98 @@
 
 import { useState } from 'react'
 
+type TemplateProfile = 'standard' | 'creator' | 'interior'
+
+type LivePreviewPayload = {
+  customer_id?: string | null
+  customer_name?: string | null
+  customer_honorific?: string | null
+  title?: string | null
+  notes?: string | null
+  due_date?: string | null
+  template_profile?: string | null
+  extended_meta?: Record<string, unknown> | null
+}
+
+function nullableText(value: unknown) {
+  if (value == null) return null
+  const s = String(value).trim()
+  return s ? s : null
+}
+
+function normalizeHonorific(value: unknown): '御中' | '様' | null {
+  const s = String(value ?? '').trim()
+  if (s === '御中' || s === '様') return s
+  return null
+}
+
+function normalizeTemplateProfile(value: unknown): TemplateProfile {
+  const s = String(value ?? '').trim()
+  if (s === 'creator' || s === 'interior' || s === 'standard') return s
+  return 'standard'
+}
+
+function toObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+async function saveLiveMetaBeforePdf(documentId: string) {
+  if (typeof window === 'undefined') return null
+
+  const live = (window as any).__invoicePreviewState?.[documentId] as
+    | LivePreviewPayload
+    | undefined
+
+  if (!live) {
+    throw new Error(
+      '書類情報の現在値を取得できませんでした。先に「書類情報を保存」を押してください。'
+    )
+  }
+
+  const payload = {
+    customer_id: nullableText(live.customer_id),
+    customer_name: nullableText(live.customer_name),
+    customer_honorific: normalizeHonorific(live.customer_honorific),
+    title: nullableText(live.title),
+    notes: nullableText(live.notes),
+    due_date: nullableText(live.due_date),
+    template_profile: normalizeTemplateProfile(live.template_profile),
+    extended_meta: toObject(live.extended_meta),
+  }
+
+  const res = await fetch(`/api/documents/${documentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+
+  const json = await res.json().catch(() => ({}))
+
+  if (!res.ok) {
+    throw new Error(json?.message ?? json?.error ?? '書類情報の保存に失敗しました')
+  }
+
+  try {
+    localStorage.removeItem(`invoice:doc:${documentId}:meta_dirty`)
+
+    window.dispatchEvent(
+      new CustomEvent('invoice:doc-meta-saved', {
+        detail: {
+          documentId,
+          draft: payload,
+        },
+      })
+    )
+
+    window.dispatchEvent(new Event('storage'))
+  } catch {}
+
+  return payload
+}
+
 export default function PdfSaveButton({
   documentId,
   onSaved,
@@ -21,23 +113,22 @@ export default function PdfSaveButton({
 
     const metaDirty =
       typeof window !== 'undefined' && localStorage.getItem(metaDirtyKey) === '1'
+
     const itemsDirty =
       typeof window !== 'undefined' && localStorage.getItem(itemsDirtyKey) === '1'
 
-    if (metaDirty || itemsDirty) {
-      const targets = [
-        metaDirty ? '書類情報' : null,
-        itemsDirty ? '明細' : null,
-      ].filter(Boolean)
-
-      window.alert(
-        `${targets.join('・')} に未保存の変更があります。先に保存してください。`
-      )
+    if (itemsDirty) {
+      window.alert('明細に未保存の変更があります。先に明細を保存してください。')
       return
     }
 
     setBusy(true)
+
     try {
+      if (metaDirty) {
+        await saveLiveMetaBeforePdf(documentId)
+      }
+
       const hashRes = await fetch(`/api/documents/${documentId}/items-hash`, {
         method: 'GET',
         credentials: 'include',

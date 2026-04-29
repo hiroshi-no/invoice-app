@@ -1,4 +1,14 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
+
+export const metadata: Metadata = {
+  title: '内装・小規模工事向け見積書・請求書作成アプリ | Seikyu Note',
+  description:
+    '内装工事・リフォーム・小規模工事の見積書・請求書作成に。工事名、現場名、工期、材料費、作業費、諸経費などを整理しながら、PDF帳票をかんたんに作成できます。',
+  alternates: {
+    canonical: '/interior',
+  },
+}
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -68,33 +78,33 @@ export default function InteriorPage() {
         </div>
 
         <h1
-          style={{
-            margin: '0 0 12px 0',
-            fontSize: 34,
-            lineHeight: 1.3,
-            fontWeight: 800,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          工事名や現場名を整理して、
-          <br />
-          見積書・請求書を作りやすく
-        </h1>
+            style={{
+              margin: '0 0 12px 0',
+              fontSize: 34,
+              lineHeight: 1.3,
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              }}
+          >
+            内装・小規模工事の見積書・請求書を、
+            <br />
+            現場ごとにすばやくPDF化
+          </h1>
 
-        <p
-          style={{
-            margin: '0 0 18px 0',
-            fontSize: 15,
-            lineHeight: 1.9,
-            color: '#4b5563',
-            maxWidth: 780,
-          }}
-        >
-          Seikyu Note は、内装業者や小規模工事業向けに
-          工事名・現場名・工期・請求区分・前回まで請求額・今回請求額・残額などの情報を
-          帳票に整理して載せやすい請求書作成アプリです。
-          案件単位で見積書・請求書を整えたい個人事業主に向いています。
-        </p>
+          <p
+             style={{
+              margin: '0 0 18px 0',
+              fontSize: 15,
+              lineHeight: 1.9,
+              color: '#4b5563',
+              maxWidth: 780,
+            }}
+          >
+            Seikyu Note は、内装工事・リフォーム・小規模工事の
+            見積書・請求書作成に使いやすい帳票作成アプリです。
+            工事名、現場名、工期、材料費、作業費、諸経費、支払条件などを整理しながら、
+            見た目の整ったPDFをかんたんに作成できます。
+          </p>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link
@@ -110,21 +120,44 @@ export default function InteriorPage() {
         </div>
       </section>
 
+<section style={{ marginTop: 28 }}>
+  <h2 style={sectionTitle}>工事案件の見積・請求で、こんな手間はありませんか？</h2>
+
+  <div style={grid2}>
+    <InfoCard
+      title="案件ごとの帳票作成に時間がかかる"
+      bullets={[
+        '現場ごとに見積書や請求書を毎回作り直している',
+        'ExcelやスプレッドシートでPDF化するのが面倒',
+        '見積書と請求書の内容を別々に管理している',
+      ]}
+    />
+    <InfoCard
+      title="工事項目や条件を整理しにくい"
+      bullets={[
+        '材料費、作業費、諸経費を分かりやすく分けたい',
+        '工期や支払条件を備考欄にきちんと残したい',
+        '会計ソフトや施工管理システムほど大きな機能はまだ必要ない',
+      ]}
+    />
+  </div>
+</section>
+
       <section style={{ marginTop: 28 }}>
         <h2 style={sectionTitle}>こんな方に向いています</h2>
 
         <div style={grid3}>
           <FeatureCard
-            title="内装業者"
-            text="店舗改装や内装工事など、案件単位で見積書と請求書を管理したい方向けです。"
+            title="内装工事・リフォーム業の方"
+            text="クロス張替え、床工事、塗装、設備交換、店舗内装など、現場ごとの見積書・請求書作成に使えます。"
           />
           <FeatureCard
-            title="小規模工事業"
-            text="工事名・現場名・工期を整理した帳票を出したい個人事業主に向いています。"
+            title="一人親方・個人事業主の方"
+            text="大きな施工管理システムではなく、まずは見積書・請求書PDFをシンプルに作りたい方に向いています。"
           />
           <FeatureCard
-            title="修理・施工業"
-            text="単純な請求だけでなく、進捗のある案件も整理しやすくなります。"
+            title="小規模工事を受ける事業者"
+            text="材料費、作業費、諸経費などを明細に分けて、取引先に提出しやすい帳票を作成できます。"
           />
         </div>
       </section>
@@ -134,23 +167,23 @@ export default function InteriorPage() {
 
         <div style={grid2}>
           <InfoCard
-            title="案件情報を整理しやすい"
+            title="工事案件ごとに整理しやすい"
             bullets={[
-              '工事名',
-              '現場名',
-              '工事場所',
-              '工期',
-              '見積有効期限',
-            ]}
-          />
+               '工事名',
+               '現場名',
+               '工事場所',
+               '工期',
+               '見積有効期限',
+             ]}
+           />
           <InfoCard
-            title="請求進捗を整理しやすい"
+            title="工事項目を明細化しやすい"
             bullets={[
-              '請求区分',
-              '前回まで請求額',
-              '今回請求額',
-              '残額',
-              '支払条件の整理',
+              '材料費',
+              '作業費',
+              '諸経費',
+              '追加工事',
+              '値引きや調整項目',
             ]}
           />
         </div>
@@ -160,11 +193,11 @@ export default function InteriorPage() {
         <h2 style={sectionTitle}>作成の流れ</h2>
 
         <div style={grid3}>
-          <StepCard
-            step="1"
-            title="ログイン"
-            text="工事向け入口からログインすると、初期設定を interior に寄せられます。"
-          />
+         <StepCard
+           step="1"
+           title="ログイン"
+           text="工事向け入口からログインすると、内装・小規模工事向けの設定で始めやすくなります。"
+         />
           <StepCard
             step="2"
             title="見積書・請求書を作成"
@@ -193,6 +226,84 @@ export default function InteriorPage() {
         </div>
       </section>
 
+      <section style={{ marginTop: 28 }}>
+  <h2 style={sectionTitle}>サンプル見積書イメージ</h2>
+
+  <div style={sampleBox}>
+    <div style={sampleHeader}>
+      <div>
+        <div style={sampleLabel}>見積書サンプル</div>
+        <div style={sampleTitle}>店舗内装工事 お見積書</div>
+      </div>
+      <div style={sampleAmount}>合計 385,000円</div>
+    </div>
+
+    <div style={sampleTable}>
+      <div style={sampleRowHead}>
+        <span>内容</span>
+        <span>金額</span>
+      </div>
+      <div style={sampleRow}>
+        <span>クロス張替え工事</span>
+        <span>120,000円</span>
+      </div>
+      <div style={sampleRow}>
+        <span>床材張替え工事</span>
+        <span>150,000円</span>
+      </div>
+      <div style={sampleRow}>
+        <span>養生・搬入出作業</span>
+        <span>45,000円</span>
+      </div>
+      <div style={sampleRow}>
+        <span>諸経費</span>
+        <span>70,000円</span>
+      </div>
+    </div>
+
+    <p style={sampleNote}>
+      備考例：工期はご発注後、日程調整のうえ確定します。
+      追加工事が発生する場合は、別途お見積りとなります。
+    </p>
+  </div>
+</section>
+
+<section style={{ marginTop: 28 }}>
+  <h2 style={sectionTitle}>大きな施工管理システムまでは必要ない方に</h2>
+
+  <div style={card}>
+    <p style={{ ...cardText, margin: 0 }}>
+      Seikyu Note は、工程管理や現場写真管理まで行う大規模な施工管理システムではありません。
+      まずは、内装・小規模工事の見積書・請求書をすばやく作り、
+      PDFで確認・保存したい方向けのシンプルな帳票作成アプリです。
+      複雑な機能よりも、日々の工事案件で迷わず使えることを重視しています。
+    </p>
+  </div>
+</section>
+
+<section style={{ marginTop: 28 }}>
+  <h2 style={sectionTitle}>よくある質問</h2>
+
+  <div style={grid2}>
+    <FaqCard
+      question="内装工事の見積書にも使えますか？"
+      answer="はい。クロス張替え、床工事、塗装、設備交換、原状回復、店舗内装など、小規模な工事案件の見積書・請求書作成に使えます。"
+    />
+    <FaqCard
+      question="材料費と作業費を分けて入力できますか？"
+      answer="はい。明細ごとに内容、数量、単価、金額を入力できるため、材料費・作業費・諸経費などを分けて整理できます。"
+    />
+    <FaqCard
+      question="見積書と請求書の両方を作れますか？"
+      answer="はい。案件に応じて見積書・請求書を作成できます。"
+    />
+    <FaqCard
+      question="施工管理機能はありますか？"
+      answer="現時点では、見積書・請求書PDFの作成と管理を中心にしたシンプルなアプリです。"
+    />
+  </div>
+</section>
+
       <section
         style={{
           marginTop: 34,
@@ -202,7 +313,7 @@ export default function InteriorPage() {
           padding: '22px 20px',
         }}
       >
-        <h2 style={{ ...sectionTitle, marginTop: 0 }}>まずは interior プロファイルで試す</h2>
+        <h2 style={{ ...sectionTitle, marginTop: 0 }}>まずは内装・小規模工事向け設定で試す</h2>
         <p
           style={{
             margin: '0 0 14px 0',
@@ -211,15 +322,15 @@ export default function InteriorPage() {
             color: '#4b5563',
           }}
         >
-          内装・小規模工事向けの初期設定でログインすると、
-          新規書類作成時の帳票タイプを interior で始めやすくなります。
+          Seikyu Note は無料プランから始められます。
+          まずは数件の見積書・請求書を作成して、PDFの見た目や操作感を確認できます。
         </p>
 
         <Link
           href="/login?entry=interior&entry_path=/interior&entry_source=organic"
           style={mainCta}
         >
-          工事向けでログインする
+          無料で始める
         </Link>
       </section>
     </div>
@@ -297,6 +408,15 @@ function ExampleCard({ title, text }: { title: string; text: string }) {
   )
 }
 
+function FaqCard({ question, answer }: { question: string; answer: string }) {
+  return (
+    <div style={card}>
+      <div style={cardTitle}>Q. {question}</div>
+      <div style={cardText}>A. {answer}</div>
+    </div>
+  )
+}
+
 const sectionTitle: React.CSSProperties = {
   margin: '0 0 14px 0',
   fontSize: 22,
@@ -343,6 +463,79 @@ const list: React.CSSProperties = {
   color: '#374151',
   lineHeight: 1.9,
   fontSize: 14,
+}
+
+const sampleBox: React.CSSProperties = {
+  border: '1px solid #e5e7eb',
+  borderRadius: 18,
+  background: '#ffffff',
+  padding: 20,
+  boxShadow: '0 8px 24px rgba(0,0,0,0.04)',
+}
+
+const sampleHeader: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  marginBottom: 16,
+  borderBottom: '1px solid #e5e7eb',
+  paddingBottom: 14,
+}
+
+const sampleLabel: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#2563eb',
+  marginBottom: 6,
+}
+
+const sampleTitle: React.CSSProperties = {
+  fontSize: 20,
+  fontWeight: 800,
+  color: '#111827',
+}
+
+const sampleAmount: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
+  color: '#111827',
+}
+
+const sampleTable: React.CSSProperties = {
+  display: 'grid',
+  gap: 0,
+  border: '1px solid #e5e7eb',
+  borderRadius: 12,
+  overflow: 'hidden',
+}
+
+const sampleRowHead: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 120px',
+  gap: 12,
+  padding: '10px 12px',
+  background: '#f3f4f6',
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#374151',
+}
+
+const sampleRow: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 120px',
+  gap: 12,
+  padding: '10px 12px',
+  borderTop: '1px solid #e5e7eb',
+  fontSize: 14,
+  color: '#374151',
+}
+
+const sampleNote: React.CSSProperties = {
+  margin: '14px 0 0 0',
+  fontSize: 13,
+  lineHeight: 1.8,
+  color: '#4b5563',
 }
 
 const topLink: React.CSSProperties = {

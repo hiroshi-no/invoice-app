@@ -400,6 +400,33 @@ const [persistedExtendedMeta, setPersistedExtendedMeta] = useState<Record<string
   )
 }
 
+useEffect(() => {
+  const onMetaSaved = (event: Event) => {
+    const customEvent = event as CustomEvent<{
+      documentId?: string
+      draft?: DocumentMetaDraft
+    }>
+
+    if (customEvent.detail?.documentId !== documentId) return
+    if (!customEvent.detail?.draft) return
+
+    applyDraftToState(customEvent.detail.draft)
+
+    setErr(null)
+    setOk('書類情報を保存しました')
+
+    try {
+      localStorage.removeItem(DIRTY_KEY)
+    } catch {}
+  }
+
+  window.addEventListener('invoice:doc-meta-saved', onMetaSaved)
+
+  return () => {
+    window.removeEventListener('invoice:doc-meta-saved', onMetaSaved)
+  }
+}, [documentId, DIRTY_KEY])
+
 const currentExtendedMeta = useMemo<Record<string, unknown>>(() => {
   if (templateProfile === 'creator') {
     const base =

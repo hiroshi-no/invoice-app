@@ -65,7 +65,7 @@ export default async function DocumentEditPage({ params }: Props) {
   const { data: doc, error: docErr } = await supabase
     .from('documents')
     .select(
-      'id, org_id, doc_type, status, currency, document_no, issued_at, customer_id, customer_name, customer_honorific, title, notes, due_date'
+     'id, org_id, doc_type, status, currency, document_no, issued_at, customer_id, customer_name, customer_honorific, title, notes, due_date, template_profile, extended_meta'
     )
     .eq('id', documentId)
     .maybeSingle()
@@ -136,13 +136,20 @@ export default async function DocumentEditPage({ params }: Props) {
   const currency = String((doc as any).currency ?? 'JPY')
 
     const initialMeta = {
-    customer_id: (doc as any).customer_id ?? null,
-    customer_name: (doc as any).customer_name ?? '',
-    customer_honorific: (doc as any).customer_honorific ?? null,
-    title: (doc as any).title ?? '',
-    notes: (doc as any).notes ?? '',
-    due_date: (doc as any).due_date ?? null,
-  }
+  customer_id: (doc as any).customer_id ?? null,
+  customer_name: (doc as any).customer_name ?? '',
+  customer_honorific: (doc as any).customer_honorific ?? null,
+  title: (doc as any).title ?? '',
+  notes: (doc as any).notes ?? '',
+  due_date: (doc as any).due_date ?? null,
+  template_profile: (doc as any).template_profile ?? 'standard',
+  extended_meta:
+    (doc as any).extended_meta &&
+    typeof (doc as any).extended_meta === 'object' &&
+    !Array.isArray((doc as any).extended_meta)
+      ? (doc as any).extended_meta
+      : {},
+}
 
   const initialItemsForEdit = ((items ?? []) as Array<{
     id?: string
@@ -201,7 +208,7 @@ export default async function DocumentEditPage({ params }: Props) {
             color: '#4b5563',
           }}
         >
-          プレビューは編集中の内容、PDF保存は保存済み内容が反映されます。
+          PDF保存時には、書類情報の未保存内容も自動保存されます。明細に未保存の変更がある場合は、先に明細を保存してください。
         </div>
 
         <EditPageClient
